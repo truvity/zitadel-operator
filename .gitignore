@@ -1,0 +1,34 @@
+# Binaries
+bin/
+dist/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Devbox
+.devbox/
+
+# Coverage
+coverage.out
+coverage.html
+
+# Generated CRD manifests (committed separately)
+config/crd/bases/

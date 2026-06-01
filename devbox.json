@@ -1,0 +1,12 @@
+{
+  "packages": [
+    "go@latest",
+    "golangci-lint@latest",
+    "gopls@latest",
+    "goreleaser@latest"
+  ],
+  "shell": {
+    "init_hook": [],
+    "scripts": {}
+  }
+}
