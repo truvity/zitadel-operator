@@ -27,6 +27,7 @@ zitadel:
   insecure: true
   jwtSecretName: zitadel-admin-sa
   jwtSecretNamespace: zitadel
+  jwtSecretKey: ""
   mode: iam-owner
   project: ""
 

@@ -30,6 +30,9 @@ spec:
             - --zitadel-insecure={{ .Values.zitadel.insecure }}
             - --jwt-secret-name={{ .Values.zitadel.jwtSecretName }}
             - --jwt-secret-namespace={{ .Values.zitadel.jwtSecretNamespace }}
+            {{- if .Values.zitadel.jwtSecretKey }}
+            - --jwt-secret-key={{ .Values.zitadel.jwtSecretKey }}
+            {{- end }}
             - --mode={{ .Values.zitadel.mode }}
             {{- if .Values.zitadel.project }}
             - --project={{ .Values.zitadel.project }}

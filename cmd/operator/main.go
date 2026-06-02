@@ -42,6 +42,7 @@ func main() {
 		zitadelInsecure    bool
 		jwtSecretName      string
 		jwtSecretNamespace string
+		jwtSecretKey       string
 		mode               string
 		project            string
 	)
@@ -54,6 +55,7 @@ func main() {
 	flag.BoolVar(&zitadelInsecure, "zitadel-insecure", true, "Connect to Zitadel over plain HTTP (no TLS).")
 	flag.StringVar(&jwtSecretName, "jwt-secret-name", "zitadel-admin-sa", "The name of the Secret containing the JWT key.")
 	flag.StringVar(&jwtSecretNamespace, "jwt-secret-namespace", "zitadel", "The namespace of the Secret containing the JWT key.")
+	flag.StringVar(&jwtSecretKey, "jwt-secret-key", "", "The data key within the Secret (default: <secretName>.json, matching Zitadel convention).")
 	flag.StringVar(&mode, "mode", "iam-owner", "Operator mode: iam-owner or project-owner.")
 	flag.StringVar(&project, "project", "", "Project name (required for project-owner mode).")
 
@@ -87,8 +89,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Default jwt-secret-key to <secretName>.json (Zitadel convention).
+	if jwtSecretKey == "" {
+		jwtSecretKey = jwtSecretName + ".json"
+	}
+
 	// Read JWT key from Kubernetes Secret.
-	zitadelClient, err := initZitadelClient(mgr, zitadelDomain, zitadelPort, zitadelInsecure, jwtSecretName, jwtSecretNamespace)
+	zitadelClient, err := initZitadelClient(mgr, zitadelDomain, zitadelPort, zitadelInsecure, jwtSecretName, jwtSecretNamespace, jwtSecretKey)
 	if err != nil {
 		setupLog.Error(err, "unable to initialize Zitadel client")
 		os.Exit(1)
@@ -160,7 +167,7 @@ func main() {
 }
 
 // initZitadelClient reads the JWT key from a Kubernetes Secret and creates the Zitadel client.
-func initZitadelClient(mgr ctrl.Manager, domain, port string, insecurePlaintext bool, secretName, secretNamespace string) (*zitadel.Client, error) {
+func initZitadelClient(mgr ctrl.Manager, domain, port string, insecurePlaintext bool, secretName, secretNamespace, secretKey string) (*zitadel.Client, error) {
 	// Use a direct client (not cached) to read the secret at startup.
 	directClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
 	if err != nil {
@@ -175,9 +182,9 @@ func initZitadelClient(mgr ctrl.Manager, domain, port string, insecurePlaintext 
 		return nil, fmt.Errorf("reading JWT secret %s/%s: %w", secretNamespace, secretName, err)
 	}
 
-	keyJSON, ok := secret.Data["key.json"]
+	keyJSON, ok := secret.Data[secretKey]
 	if !ok {
-		return nil, fmt.Errorf("key.json not found in secret %s/%s", secretNamespace, secretName)
+		return nil, fmt.Errorf("%q not found in secret %s/%s", secretKey, secretNamespace, secretName)
 	}
 
 	zitadelClient, err := zitadel.NewClient(context.Background(), domain, port, keyJSON, insecurePlaintext)
