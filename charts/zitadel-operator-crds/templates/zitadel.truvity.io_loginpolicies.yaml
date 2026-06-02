@@ -51,6 +51,11 @@ spec:
                 description: AllowRegister determines whether self-registration is
                   allowed.
                 type: boolean
+              allowUsernamePassword:
+                description: |-
+                  AllowUsernamePassword determines whether username/password login is allowed.
+                  Defaults to true if not set.
+                type: boolean
               disableLoginWithEmail:
                 description: DisableLoginWithEmail disables login with email.
                 type: boolean

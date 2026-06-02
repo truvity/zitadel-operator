@@ -6,6 +6,11 @@ import (
 
 // LoginPolicyCRDSpec defines the desired state of LoginPolicy.
 type LoginPolicyCRDSpec struct {
+	// AllowUsernamePassword determines whether username/password login is allowed.
+	// Defaults to true if not set.
+	// +optional
+	AllowUsernamePassword *bool `json:"allowUsernamePassword,omitempty"`
+
 	// AllowRegister determines whether self-registration is allowed.
 	AllowRegister bool `json:"allowRegister,omitempty"`
 

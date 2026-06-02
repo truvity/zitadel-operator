@@ -58,8 +58,12 @@ func (r *LoginPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Update login policy settings via Admin service.
 	// Ignore FailedPrecondition errors which mean "not changed".
+	allowUsernamePassword := true
+	if cr.Spec.AllowUsernamePassword != nil {
+		allowUsernamePassword = *cr.Spec.AllowUsernamePassword
+	}
 	_, err := r.Zitadel.Admin().UpdateLoginPolicy(ctx, &admin.UpdateLoginPolicyRequest{
-		AllowUsernamePassword: true,
+		AllowUsernamePassword: allowUsernamePassword,
 		AllowRegister:         cr.Spec.AllowRegister,
 		AllowExternalIdp:      cr.Spec.AllowExternalIdp,
 		HidePasswordReset:     cr.Spec.HidePasswordReset,
