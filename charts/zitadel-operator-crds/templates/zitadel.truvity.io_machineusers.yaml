@@ -50,6 +50,11 @@ spec:
                 description: Description is an optional description of the machine
                   user.
                 type: string
+              keyExpirationDays:
+                description: |-
+                  KeyExpirationDays is the number of days until the machine key expires.
+                  Defaults to 3650 (10 years) if not set.
+                type: integer
               keySecretRef:
                 description: KeySecretRef references the Secret where the generated
                   key JSON will be stored.

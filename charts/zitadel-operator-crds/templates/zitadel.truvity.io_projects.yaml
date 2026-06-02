@@ -47,6 +47,11 @@ spec:
                 description: AssertRolesOnAuth determines whether roles are asserted
                   on authentication.
                 type: boolean
+              organizationId:
+                description: |-
+                  OrganizationId is the Zitadel organization ID this project belongs to.
+                  If empty, the default organization of the instance is used.
+                type: string
               roles:
                 description: Roles is the list of roles defined for this project.
                 items:
