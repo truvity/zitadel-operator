@@ -61,6 +61,13 @@ spec:
                 description: HidePasswordReset hides the password reset option on
                   the login page.
                 type: boolean
+              idpProviders:
+                description: |-
+                  IdpProviders is a list of IdentityProvider CR names to activate on the login page.
+                  The controller resolves these names to Zitadel IdP IDs via the IdentityProvider CR status.
+                items:
+                  type: string
+                type: array
               mfaType:
                 description: MfaType is the optional multi-factor authentication type.
                 type: string

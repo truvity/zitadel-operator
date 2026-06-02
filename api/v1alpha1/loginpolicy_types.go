@@ -28,6 +28,11 @@ type LoginPolicyCRDSpec struct {
 	// MfaType is the optional multi-factor authentication type.
 	// +optional
 	MfaType string `json:"mfaType,omitempty"`
+
+	// IdpProviders is a list of IdentityProvider CR names to activate on the login page.
+	// The controller resolves these names to Zitadel IdP IDs via the IdentityProvider CR status.
+	// +optional
+	IdpProviders []string `json:"idpProviders,omitempty"`
 }
 
 // LoginPolicyCRDStatus defines the observed state of LoginPolicy.
