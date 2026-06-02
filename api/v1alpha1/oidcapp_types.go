@@ -20,6 +20,23 @@ type OIDCAppSpec struct {
 	// RedirectUris is the list of allowed redirect URIs.
 	RedirectUris []string `json:"redirectUris"`
 
+	// PostLogoutRedirectUris is the list of allowed post-logout redirect URIs.
+	// +optional
+	PostLogoutRedirectUris []string `json:"postLogoutRedirectUris,omitempty"`
+
+	// AccessTokenType specifies the access token format.
+	// +kubebuilder:validation:Enum=bearer;jwt
+	// +optional
+	AccessTokenType string `json:"accessTokenType,omitempty"`
+
+	// AccessTokenRoleAssertion determines whether roles are included in the access token.
+	// +optional
+	AccessTokenRoleAssertion bool `json:"accessTokenRoleAssertion,omitempty"`
+
+	// IdTokenRoleAssertion determines whether roles are included in the ID token.
+	// +optional
+	IdTokenRoleAssertion bool `json:"idTokenRoleAssertion,omitempty"`
+
 	// SecretRef references the Secret where the client secret will be stored.
 	SecretRef SecretRefSpec `json:"secretRef"`
 }

@@ -4,22 +4,22 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: oidcapps.zitadel.truvity.io
+  name: applicationkeys.zitadel.truvity.io
 spec:
   group: zitadel.truvity.io
   names:
-    kind: OIDCApp
-    listKind: OIDCAppList
-    plural: oidcapps
-    singular: oidcapp
+    kind: ApplicationKey
+    listKind: ApplicationKeyList
+    plural: applicationkeys
+    singular: applicationkey
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.project
-      name: Project
+    - jsonPath: .spec.appId
+      name: AppId
       type: string
-    - jsonPath: .spec.type
-      name: Type
+    - jsonPath: .spec.projectRef
+      name: Project
       type: string
     - jsonPath: .status.ready
       name: Ready
@@ -27,7 +27,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: OIDCApp is the Schema for the oidcapps API.
+        description: ApplicationKey is the Schema for the applicationkeys API.
         properties:
           apiVersion:
             description: |-
@@ -47,46 +47,20 @@ spec:
           metadata:
             type: object
           spec:
-            description: OIDCAppSpec defines the desired state of OIDCApp.
+            description: ApplicationKeySpec defines the desired state of ApplicationKey.
             properties:
-              accessTokenRoleAssertion:
-                description: AccessTokenRoleAssertion determines whether roles are
-                  included in the access token.
-                type: boolean
-              accessTokenType:
-                description: AccessTokenType specifies the access token format.
-                enum:
-                - bearer
-                - jwt
+              appId:
+                description: AppId is the Zitadel application ID to create the key
+                  for.
                 type: string
-              authMethod:
-                description: AuthMethod is the authentication method (basic or none).
-                enum:
-                - basic
-                - none
-                type: string
-              idTokenRoleAssertion:
-                description: IdTokenRoleAssertion determines whether roles are included
-                  in the ID token.
-                type: boolean
-              postLogoutRedirectUris:
-                description: PostLogoutRedirectUris is the list of allowed post-logout
-                  redirect URIs.
-                items:
-                  type: string
-                type: array
-              project:
-                description: Project is the name of the Zitadel project this app belongs
-                  to.
-                type: string
-              redirectUris:
-                description: RedirectUris is the list of allowed redirect URIs.
-                items:
-                  type: string
-                type: array
-              secretRef:
-                description: SecretRef references the Secret where the client secret
-                  will be stored.
+              expirationDays:
+                description: |-
+                  ExpirationDays is the number of days until the key expires.
+                  Defaults to 3650 (10 years) if not set.
+                type: integer
+              keySecretRef:
+                description: KeySecretRef references the Secret where the generated
+                  key JSON will be stored.
                 properties:
                   name:
                     description: Name is the name of the Secret.
@@ -94,25 +68,18 @@ spec:
                 required:
                 - name
                 type: object
-              type:
-                description: Type is the OIDC application type (confidential or public).
-                enum:
-                - confidential
-                - public
+              projectRef:
+                description: ProjectRef is the name of the Zitadel Project CR this
+                  key belongs to.
                 type: string
             required:
-            - authMethod
-            - project
-            - redirectUris
-            - secretRef
-            - type
+            - appId
+            - keySecretRef
+            - projectRef
             type: object
           status:
-            description: OIDCAppStatus defines the observed state of OIDCApp.
+            description: ApplicationKeyStatus defines the observed state of ApplicationKey.
             properties:
-              clientId:
-                description: ClientId is the OIDC client ID assigned by Zitadel.
-                type: string
               conditions:
                 description: Conditions represent the latest available observations
                   of the resource's state.
@@ -171,13 +138,17 @@ spec:
                   - type
                   type: object
                 type: array
+              keyId:
+                description: KeyId is the Zitadel application key ID.
+                type: string
               lastSyncTime:
                 description: LastSyncTime is the last time the resource was synced
                   with Zitadel.
                 format: date-time
                 type: string
               ready:
-                description: Ready indicates whether the OIDCApp is successfully synced.
+                description: Ready indicates whether the ApplicationKey is successfully
+                  synced.
                 type: boolean
             type: object
         type: object

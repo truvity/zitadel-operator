@@ -170,6 +170,62 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controller.ProjectGrantReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ProjectGrant")
+		os.Exit(1)
+	}
+
+	if err := (&controller.UserGrantReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "UserGrant")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ProjectMemberReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ProjectMember")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ApplicationKeyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ApplicationKey")
+		os.Exit(1)
+	}
+
+	if err := (&controller.PersonalAccessTokenReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PersonalAccessToken")
+		os.Exit(1)
+	}
+
+	if err := (&controller.PasswordComplexityPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PasswordComplexityPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.LockoutPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "LockoutPolicy")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)

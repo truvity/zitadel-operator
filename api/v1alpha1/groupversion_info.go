@@ -28,6 +28,13 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&MachineUser{}, &MachineUserList{},
 		&IdentityProvider{}, &IdentityProviderList{},
 		&LoginPolicy{}, &LoginPolicyList{},
+		&ProjectGrant{}, &ProjectGrantList{},
+		&UserGrant{}, &UserGrantList{},
+		&ProjectMember{}, &ProjectMemberList{},
+		&ApplicationKey{}, &ApplicationKeyList{},
+		&PersonalAccessToken{}, &PersonalAccessTokenList{},
+		&PasswordComplexityPolicy{}, &PasswordComplexityPolicyList{},
+		&LockoutPolicy{}, &LockoutPolicyList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil

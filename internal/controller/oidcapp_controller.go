@@ -185,17 +185,29 @@ func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string,
 		authMethod = applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_NONE
 	}
 
+	// Resolve access token type.
+	accessTokenType := applicationv2.OIDCTokenType_OIDC_TOKEN_TYPE_BEARER
+	if cr.Spec.AccessTokenType == "jwt" {
+		accessTokenType = applicationv2.OIDCTokenType_OIDC_TOKEN_TYPE_JWT
+	}
+
+	oidcConfig := &applicationv2.CreateOIDCApplicationRequest{
+		RedirectUris:             cr.Spec.RedirectUris,
+		PostLogoutRedirectUris:   cr.Spec.PostLogoutRedirectUris,
+		ResponseTypes:            []applicationv2.OIDCResponseType{applicationv2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
+		GrantTypes:               []applicationv2.OIDCGrantType{applicationv2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE},
+		ApplicationType:          appType,
+		AuthMethodType:           authMethod,
+		AccessTokenType:          accessTokenType,
+		AccessTokenRoleAssertion: cr.Spec.AccessTokenRoleAssertion,
+		IdTokenRoleAssertion:     cr.Spec.IdTokenRoleAssertion,
+	}
+
 	resp, createErr := r.Zitadel.Application().CreateApplication(ctx, &applicationv2.CreateApplicationRequest{
 		ProjectId: projectID,
 		Name:      cr.Name,
 		ApplicationType: &applicationv2.CreateApplicationRequest_OidcConfiguration{
-			OidcConfiguration: &applicationv2.CreateOIDCApplicationRequest{
-				RedirectUris:    cr.Spec.RedirectUris,
-				ResponseTypes:   []applicationv2.OIDCResponseType{applicationv2.OIDCResponseType_OIDC_RESPONSE_TYPE_CODE},
-				GrantTypes:      []applicationv2.OIDCGrantType{applicationv2.OIDCGrantType_OIDC_GRANT_TYPE_AUTHORIZATION_CODE},
-				ApplicationType: appType,
-				AuthMethodType:  authMethod,
-			},
+			OidcConfiguration: oidcConfig,
 		},
 	})
 	if createErr != nil {
@@ -204,9 +216,9 @@ func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string,
 
 	appID = resp.GetApplicationId()
 	if oidcResp := resp.GetApplicationType(); oidcResp != nil {
-		if oidcConfig, ok := oidcResp.(*applicationv2.CreateApplicationResponse_OidcConfiguration); ok {
-			clientID = oidcConfig.OidcConfiguration.GetClientId()
-			clientSecret = oidcConfig.OidcConfiguration.GetClientSecret()
+		if oidcRespConfig, ok := oidcResp.(*applicationv2.CreateApplicationResponse_OidcConfiguration); ok {
+			clientID = oidcRespConfig.OidcConfiguration.GetClientId()
+			clientSecret = oidcRespConfig.OidcConfiguration.GetClientSecret()
 		}
 	}
 

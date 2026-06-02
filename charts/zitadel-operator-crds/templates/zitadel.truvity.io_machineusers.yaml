@@ -46,6 +46,13 @@ spec:
           spec:
             description: MachineUserSpec defines the desired state of MachineUser.
             properties:
+              accessTokenType:
+                description: AccessTokenType specifies the access token format for
+                  this machine user.
+                enum:
+                - bearer
+                - jwt
+                type: string
               description:
                 description: Description is an optional description of the machine
                   user.

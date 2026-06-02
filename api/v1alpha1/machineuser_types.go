@@ -27,6 +27,11 @@ type MachineUserSpec struct {
 	// Defaults to 3650 (10 years) if not set.
 	// +optional
 	KeyExpirationDays int `json:"keyExpirationDays,omitempty"`
+
+	// AccessTokenType specifies the access token format for this machine user.
+	// +kubebuilder:validation:Enum=bearer;jwt
+	// +optional
+	AccessTokenType string `json:"accessTokenType,omitempty"`
 }
 
 // MachineUserStatus defines the observed state of MachineUser.
