@@ -5,13 +5,10 @@ package zitadel
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
-	"time"
 
-	jose "github.com/go-jose/go-jose/v4"
-	"github.com/zitadel/oidc/v3/pkg/client"
+	"github.com/zitadel/oidc/v3/pkg/client/profile"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	zitadelclient "github.com/zitadel/zitadel-go/v3/pkg/client"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
@@ -34,8 +31,7 @@ type Client struct {
 
 // ClientConfig holds the configuration for creating a Zitadel client.
 type ClientConfig struct {
-	// Domain is the domain Zitadel recognizes as its instance (external domain).
-	// Used for OIDC discovery and gRPC :authority header.
+	// Domain is the internal address of the Zitadel service (e.g., zitadel.zitadel.svc.cluster.kernel).
 	Domain string
 
 	// Port is the port for the Zitadel API.
@@ -47,27 +43,24 @@ type ClientConfig struct {
 	// KeyJSON is the JWT profile key data.
 	KeyJSON []byte
 
-	// TargetAddr is the actual network address to connect to (e.g., internal K8s service).
-	// When set, DNS is hijacked so Domain resolves to TargetAddr, and a custom
-	// token source signs JWTs with the correct HTTPS audience.
-	// When empty, the SDK dials Domain directly.
-	TargetAddr string
+	// ExternalDomain is the canonical external domain Zitadel is configured with
+	// (e.g., zitadel.truvity.xyz). When set, enables split-horizon mode:
+	// - Connects to Domain:Port (internal)
+	// - Sends x-zitadel-instance-host header for instance matching
+	// - Signs JWT assertions with audience https://ExternalDomain
+	// - Uses static token endpoint (skips OIDC discovery)
+	ExternalDomain string
 }
 
 // NewClient creates a new Zitadel client using JWT Profile authentication.
-// If cfg.TargetAddr is set, uses DNS hijacking + custom token source for
-// split-horizon routing (internal network, external identity).
 func NewClient(ctx context.Context, cfg *ClientConfig) (*Client, error) {
 	keyFile, err := zitadelclient.ConfigFromKeyFileData(cfg.KeyJSON)
 	if err != nil {
 		return nil, fmt.Errorf("parsing key file: %w", err)
 	}
 
-	// When TargetAddr is set, use split-horizon mode:
-	// - DNS hijack: Domain resolves to TargetAddr
-	// - WithInsecure: plaintext gRPC transport
-	// - Custom token source: signs JWT with https://Domain audience
-	if cfg.TargetAddr != "" {
+	// Split-horizon mode: connect to internal service, authenticate against external domain.
+	if cfg.ExternalDomain != "" {
 		return newSplitHorizonClient(ctx, cfg, keyFile)
 	}
 
@@ -101,44 +94,51 @@ func NewClient(ctx context.Context, cfg *ClientConfig) (*Client, error) {
 }
 
 // newSplitHorizonClient creates a client that connects to an internal service
-// while presenting the external domain identity to Zitadel.
-func newSplitHorizonClient(ctx context.Context, cfg *ClientConfig, _ *zitadelclient.KeyFile) (*Client, error) {
-	// 1. DNS hijack: resolve cfg.Domain to cfg.TargetAddr.
-	targetHost, targetPort, err := net.SplitHostPort(cfg.TargetAddr)
-	if err != nil {
-		// TargetAddr might not have a port — treat as host:cfg.Port
-		targetHost = cfg.TargetAddr
-		targetPort = cfg.Port
-	}
-	installDNSOverride(cfg.Domain, targetHost, targetPort)
+// while authenticating against the external domain.
+//
+// Uses the standard OIDC library pattern:
+// - WithStaticTokenEndpoint: skips discovery, points to internal token endpoint
+// - x-zitadel-instance-host header: tells Zitadel which instance to use
+// - JWT audience: https://ExternalDomain (what Zitadel expects)
+func newSplitHorizonClient(ctx context.Context, cfg *ClientConfig, keyFile *zitadelclient.KeyFile) (*Client, error) {
+	// Build the token source using the OIDC library directly.
+	// This avoids the SDK's AuthenticationJWTProfile which ties issuer to the dial target.
+	issuer := "https://" + cfg.ExternalDomain
+	tokenEndpoint := "http://" + cfg.Domain + ":" + cfg.Port + "/oauth/v2/token"
 
-	// 2. SDK in insecure mode — uses cfg.Domain:cfg.Port as dial target.
-	// DNS hijack routes it to the internal service.
-	zitadelOpts := []zitadel.Option{
-		zitadel.WithInsecure(cfg.Port),
+	// HTTP client that adds the instance host header to token requests.
+	httpClient := &http.Client{
+		Transport: &instanceHeaderTransport{
+			instanceHost: cfg.ExternalDomain,
+			inner:        http.DefaultTransport,
+		},
 	}
 
-	// 3. Custom token source: signs JWT with https://Domain audience.
-	tokenSource, err := newSplitHorizonTokenSource(cfg)
+	tokenSource, err := profile.NewJWTProfileTokenSource(
+		ctx,
+		issuer,
+		keyFile.UserID,
+		keyFile.KeyID,
+		keyFile.Key,
+		[]string{oidc.ScopeOpenID, zitadelclient.ScopeZitadelAPI()},
+		profile.WithStaticTokenEndpoint(issuer, tokenEndpoint),
+		profile.WithHTTPClient(httpClient),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating token source: %w", err)
+	}
+
+	// SDK configuration: connect to internal domain, add instance header for gRPC.
+	zitadelOpts := []zitadel.Option{
+		zitadel.WithInsecure(cfg.Port),
+		zitadel.WithTransportHeader("x-zitadel-instance-host", cfg.ExternalDomain),
 	}
 
 	clientOpts := []zitadelclient.Option{
 		zitadelclient.WithAuth(func(_ context.Context, _ string) (oauth2.TokenSource, error) {
 			return tokenSource, nil
 		}),
-		zitadelclient.WithGRPCDialOptions(
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-				// Route gRPC to the internal target address.
-				host, port, _ := net.SplitHostPort(addr)
-				if host == cfg.Domain {
-					return (&net.Dialer{}).DialContext(ctx, "tcp", cfg.TargetAddr)
-				}
-				return (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(host, port))
-			}),
-		),
+		zitadelclient.WithGRPCDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	}
 
 	inner, err := zitadelclient.New(ctx, zitadel.New(cfg.Domain, zitadelOpts...), clientOpts...)
@@ -149,120 +149,18 @@ func newSplitHorizonClient(ctx context.Context, cfg *ClientConfig, _ *zitadelcli
 	return &Client{inner: inner}, nil
 }
 
-// installDNSOverride overrides net.DefaultResolver so that lookups for domain
-// return the targetHost IP. All other lookups use standard resolution.
-func installDNSOverride(domain, targetHost, targetPort string) {
-	// Resolve targetHost to IP(s) once at startup.
-	ips, err := net.LookupHost(targetHost)
-	if err != nil || len(ips) == 0 {
-		// If we can't resolve targetHost, use it as-is (might already be an IP).
-		ips = []string{targetHost}
-	}
-
-	_ = targetPort // Port is handled by the SDK's dial target, not DNS.
-
-	net.DefaultResolver = &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			// Use the default dialer for actual DNS queries.
-			return (&net.Dialer{}).DialContext(ctx, network, address)
-		},
-	}
-
-	// Override the default transport's DialContext to intercept connections to domain.
-	origTransport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		origTransport = &http.Transport{}
-	}
-	cloned := origTransport.Clone()
-	cloned.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		host, port, _ := net.SplitHostPort(addr)
-		if host == domain {
-			// Route to internal target IP.
-			return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(ips[0], port))
-		}
-		return (&net.Dialer{}).DialContext(ctx, network, addr)
-	}
-	// Wrap the transport to ensure Host header is the bare domain (no port).
-	// Zitadel's instance matching only recognizes "zitadel.truvity.xyz",
-	// not "zitadel.truvity.xyz:8080".
-	http.DefaultTransport = &hostStripPortTransport{domain: domain, inner: cloned}
+// instanceHeaderTransport adds the x-zitadel-instance-host header to HTTP requests.
+// This tells Zitadel which instance should handle the request when connecting
+// via an internal service domain.
+type instanceHeaderTransport struct {
+	instanceHost string
+	inner        http.RoundTripper
 }
 
-// hostStripPortTransport ensures the Host header is set to just the domain
-// (without port) for requests to the target domain. Zitadel's instance matching
-// only recognizes the bare domain, not domain:port.
-type hostStripPortTransport struct {
-	domain string
-	inner  http.RoundTripper
-}
-
-func (t *hostStripPortTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	host, _, _ := net.SplitHostPort(req.URL.Host)
-	if host == t.domain {
-		clone := req.Clone(req.Context())
-		clone.Host = t.domain
-		return t.inner.RoundTrip(clone)
-	}
-	return t.inner.RoundTrip(req)
-}
-
-// splitHorizonTokenSource is an oauth2.TokenSource that signs JWT assertions
-// with audience=https://domain (matching Zitadel's expectation) and exchanges
-// them at the internal token endpoint.
-type splitHorizonTokenSource struct {
-	signer        jose.Signer
-	clientID      string
-	audience      []string // ["https://zitadel.truvity.xyz"]
-	tokenEndpoint string   // "http://zitadel.truvity.xyz:8080/oauth/v2/token"
-	scopes        []string
-	httpClient    *http.Client
-}
-
-func newSplitHorizonTokenSource(cfg *ClientConfig) (*splitHorizonTokenSource, error) {
-	keyFile, err := zitadelclient.ConfigFromKeyFileData(cfg.KeyJSON)
-	if err != nil {
-		return nil, fmt.Errorf("parsing key file: %w", err)
-	}
-
-	signer, err := client.NewSignerFromPrivateKeyByte(keyFile.Key, keyFile.KeyID)
-	if err != nil {
-		return nil, fmt.Errorf("creating signer: %w", err)
-	}
-
-	// The audience is the HTTPS issuer that Zitadel expects.
-	audience := "https://" + cfg.Domain
-
-	// The token endpoint is the internal HTTP URL (DNS-hijacked).
-	tokenEndpoint := "http://" + cfg.Domain + ":" + cfg.Port + "/oauth/v2/token"
-
-	return &splitHorizonTokenSource{
-		signer:        signer,
-		clientID:      keyFile.UserID,
-		audience:      []string{audience},
-		tokenEndpoint: tokenEndpoint,
-		scopes:        []string{oidc.ScopeOpenID, zitadelclient.ScopeZitadelAPI()},
-		httpClient:    http.DefaultClient, // Uses DefaultTransport (DNS-hijacked)
-	}, nil
-}
-
-func (s *splitHorizonTokenSource) Token() (*oauth2.Token, error) {
-	assertion, err := client.SignedJWTProfileAssertion(s.clientID, s.audience, time.Hour, s.signer)
-	if err != nil {
-		return nil, fmt.Errorf("signing JWT assertion: %w", err)
-	}
-
-	return client.JWTProfileExchange(context.Background(), oidc.NewJWTProfileGrantRequest(assertion, s.scopes...), s)
-}
-
-// TokenEndpoint implements the TokenEndpointCaller interface for JWTProfileExchange.
-func (s *splitHorizonTokenSource) TokenEndpoint() string {
-	return s.tokenEndpoint
-}
-
-// HttpClient implements the TokenEndpointCaller interface for JWTProfileExchange.
-func (s *splitHorizonTokenSource) HttpClient() *http.Client {
-	return s.httpClient
+func (t *instanceHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header.Set("x-zitadel-instance-host", t.instanceHost)
+	return t.inner.RoundTrip(clone)
 }
 
 // Organization returns the v2 Organization service client.
@@ -307,3 +205,9 @@ func mustParsePort(port string) uint16 {
 	}
 	return uint16(p)
 }
+
+// Ensure instanceHeaderTransport implements http.RoundTripper at compile time.
+var _ http.RoundTripper = (*instanceHeaderTransport)(nil)
+
+// Ensure the token source initializer signature matches what the SDK expects.
+var _ zitadelclient.TokenSourceInitializer = func(_ context.Context, _ string) (oauth2.TokenSource, error) { return nil, nil }

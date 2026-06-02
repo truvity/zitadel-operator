@@ -212,13 +212,7 @@ func initZitadelClient(mgr ctrl.Manager, domain, port string, insecurePlaintext 
 		Port:              port,
 		InsecurePlaintext: insecurePlaintext,
 		KeyJSON:           keyJSON,
-	}
-
-	// When external-domain is set, use it as the SDK domain (for Host headers)
-	// and route traffic to the internal address (domain:port) via TargetAddr.
-	if externalDomain != "" {
-		cfg.TargetAddr = domain + ":" + port
-		cfg.Domain = externalDomain
+		ExternalDomain:    externalDomain,
 	}
 
 	zitadelClient, err := zitadel.NewClient(context.Background(), &cfg)

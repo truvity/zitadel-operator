@@ -22,6 +22,11 @@ type MachineUserSpec struct {
 
 	// KeySecretRef references the Secret where the generated key JSON will be stored.
 	KeySecretRef SecretRefSpec `json:"keySecretRef"`
+
+	// KeyExpirationDays is the number of days until the machine key expires.
+	// Defaults to 3650 (10 years) if not set.
+	// +optional
+	KeyExpirationDays int `json:"keyExpirationDays,omitempty"`
 }
 
 // MachineUserStatus defines the observed state of MachineUser.

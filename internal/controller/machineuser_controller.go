@@ -7,6 +7,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -164,8 +165,13 @@ func (r *MachineUserReconciler) ensureMachineKey(ctx context.Context, cr *zitade
 	}
 
 	// Generate a new machine key.
+	expirationDays := cr.Spec.KeyExpirationDays
+	if expirationDays <= 0 {
+		expirationDays = 3650 // Default: 10 years.
+	}
 	keyResp, err := r.Zitadel.User().AddKey(ctx, &userv2.AddKeyRequest{
-		UserId: userID,
+		UserId:         userID,
+		ExpirationDate: timestamppb.New(time.Now().AddDate(0, 0, expirationDays)),
 	})
 	if err != nil {
 		return fmt.Errorf("adding machine key: %w", err)

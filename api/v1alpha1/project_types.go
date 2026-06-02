@@ -6,6 +6,11 @@ import (
 
 // ProjectSpec defines the desired state of Project.
 type ProjectSpec struct {
+	// OrganizationId is the Zitadel organization ID this project belongs to.
+	// If empty, the default organization of the instance is used.
+	// +optional
+	OrganizationId string `json:"organizationId,omitempty"`
+
 	// AssertRolesOnAuth determines whether roles are asserted on authentication.
 	AssertRolesOnAuth bool `json:"assertRolesOnAuth,omitempty"`
 

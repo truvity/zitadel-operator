@@ -102,6 +102,20 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 		// Project was deleted externally, recreate it.
 	}
 
+	// Resolve organization ID.
+	orgID := cr.Spec.OrganizationId
+	if orgID == "" {
+		// Use the default organization (first in the list).
+		orgs, err := r.Zitadel.Organization().ListOrganizations(ctx, nil)
+		if err != nil {
+			return "", fmt.Errorf("listing organizations to resolve default: %w", err)
+		}
+		if len(orgs.GetResult()) == 0 {
+			return "", fmt.Errorf("no organizations found")
+		}
+		orgID = orgs.GetResult()[0].GetId()
+	}
+
 	// Search by name.
 	listResp, err := r.Zitadel.Project().ListProjects(ctx, &projectv2.ListProjectsRequest{
 		Filters: []*projectv2.ProjectSearchFilter{
@@ -127,6 +141,7 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 
 	// Create new project.
 	createResp, err := r.Zitadel.Project().CreateProject(ctx, &projectv2.CreateProjectRequest{
+		OrganizationId:       orgID,
 		Name:                 cr.Name,
 		ProjectRoleAssertion: cr.Spec.AssertRolesOnAuth,
 	})
