@@ -28,6 +28,9 @@ spec:
             - --zitadel-domain={{ .Values.zitadel.domain }}
             - --zitadel-port={{ .Values.zitadel.port }}
             - --zitadel-insecure={{ .Values.zitadel.insecure }}
+            {{- if .Values.zitadel.externalDomain }}
+            - --external-domain={{ .Values.zitadel.externalDomain }}
+            {{- end }}
             - --jwt-secret-name={{ .Values.zitadel.jwtSecretName }}
             - --jwt-secret-namespace={{ .Values.zitadel.jwtSecretNamespace }}
             {{- if .Values.zitadel.jwtSecretKey }}

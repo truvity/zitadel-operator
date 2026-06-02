@@ -40,6 +40,7 @@ func main() {
 		zitadelDomain      string
 		zitadelPort        string
 		zitadelInsecure    bool
+		externalDomain     string
 		jwtSecretName      string
 		jwtSecretNamespace string
 		jwtSecretKey       string
@@ -50,9 +51,10 @@ func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElect, "leader-elect", false, "Enable leader election for controller manager.")
-	flag.StringVar(&zitadelDomain, "zitadel-domain", "", "The domain of the Zitadel instance (e.g., zitadel.zitadel.svc.cluster.local).")
+	flag.StringVar(&zitadelDomain, "zitadel-domain", "", "The internal address of the Zitadel instance (e.g., zitadel.zitadel.svc.cluster.kernel).")
 	flag.StringVar(&zitadelPort, "zitadel-port", "8080", "The port of the Zitadel instance.")
 	flag.BoolVar(&zitadelInsecure, "zitadel-insecure", true, "Connect to Zitadel over plain HTTP (no TLS).")
+	flag.StringVar(&externalDomain, "external-domain", "", "The external domain Zitadel is configured with (e.g., zitadel.truvity.xyz). When set, used as Host header while routing to zitadel-domain internally.")
 	flag.StringVar(&jwtSecretName, "jwt-secret-name", "zitadel-admin-sa", "The name of the Secret containing the JWT key.")
 	flag.StringVar(&jwtSecretNamespace, "jwt-secret-namespace", "zitadel", "The namespace of the Secret containing the JWT key.")
 	flag.StringVar(&jwtSecretKey, "jwt-secret-key", "", "The data key within the Secret (default: <secretName>.json, matching Zitadel convention).")
@@ -94,12 +96,30 @@ func main() {
 		jwtSecretKey = jwtSecretName + ".json"
 	}
 
+	setupLog.Info("connecting to Zitadel",
+		"domain", zitadelDomain,
+		"port", zitadelPort,
+		"insecure", zitadelInsecure,
+		"externalDomain", externalDomain,
+		"mode", mode,
+		"jwtSecretName", jwtSecretName,
+		"jwtSecretNamespace", jwtSecretNamespace,
+		"jwtSecretKey", jwtSecretKey,
+	)
+
 	// Read JWT key from Kubernetes Secret.
-	zitadelClient, err := initZitadelClient(mgr, zitadelDomain, zitadelPort, zitadelInsecure, jwtSecretName, jwtSecretNamespace, jwtSecretKey)
+	zitadelClient, err := initZitadelClient(mgr, zitadelDomain, zitadelPort, zitadelInsecure, externalDomain, jwtSecretName, jwtSecretNamespace, jwtSecretKey)
 	if err != nil {
-		setupLog.Error(err, "unable to initialize Zitadel client")
+		setupLog.Error(err, "unable to initialize Zitadel client",
+			"domain", zitadelDomain,
+			"port", zitadelPort,
+			"insecure", zitadelInsecure,
+			"externalDomain", externalDomain,
+			"hint", "check CNP allows egress from zitadel-operator to zitadel namespace on port 8080, and ingress on the zitadel side",
+		)
 		os.Exit(1)
 	}
+	setupLog.Info("Zitadel client initialized successfully")
 
 	// Register controllers.
 	if err := (&controller.ProjectReconciler{
@@ -167,7 +187,7 @@ func main() {
 }
 
 // initZitadelClient reads the JWT key from a Kubernetes Secret and creates the Zitadel client.
-func initZitadelClient(mgr ctrl.Manager, domain, port string, insecurePlaintext bool, secretName, secretNamespace, secretKey string) (*zitadel.Client, error) {
+func initZitadelClient(mgr ctrl.Manager, domain, port string, insecurePlaintext bool, externalDomain, secretName, secretNamespace, secretKey string) (*zitadel.Client, error) {
 	// Use a direct client (not cached) to read the secret at startup.
 	directClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
 	if err != nil {
@@ -187,7 +207,21 @@ func initZitadelClient(mgr ctrl.Manager, domain, port string, insecurePlaintext 
 		return nil, fmt.Errorf("%q not found in secret %s/%s", secretKey, secretNamespace, secretName)
 	}
 
-	zitadelClient, err := zitadel.NewClient(context.Background(), domain, port, keyJSON, insecurePlaintext)
+	cfg := zitadel.ClientConfig{
+		Domain:            domain,
+		Port:              port,
+		InsecurePlaintext: insecurePlaintext,
+		KeyJSON:           keyJSON,
+	}
+
+	// When external-domain is set, use it as the SDK domain (for Host headers)
+	// and route traffic to the internal address (domain:port) via TargetAddr.
+	if externalDomain != "" {
+		cfg.TargetAddr = domain + ":" + port
+		cfg.Domain = externalDomain
+	}
+
+	zitadelClient, err := zitadel.NewClient(context.Background(), &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating Zitadel client: %w", err)
 	}
