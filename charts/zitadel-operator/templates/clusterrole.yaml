@@ -9,12 +9,19 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
-      - projects
-      - oidcapps
+      - applicationkeys
       - identityproviders
-      - machineusers
-      - organizations
+      - lockoutpolicies
       - loginpolicies
+      - machineusers
+      - oidcapps
+      - organizations
+      - passwordcomplexitypolicies
+      - personalaccesstokens
+      - projectgrants
+      - projectmembers
+      - projects
+      - usergrants
     verbs:
       - get
       - list
@@ -32,6 +39,13 @@ rules:
       - machineusers/status
       - organizations/status
       - loginpolicies/status
+      - projectgrants/status
+      - usergrants/status
+      - projectmembers/status
+      - applicationkeys/status
+      - personalaccesstokens/status
+      - passwordcomplexitypolicies/status
+      - lockoutpolicies/status
     verbs:
       - get
       - update
@@ -45,6 +59,13 @@ rules:
       - machineusers/finalizers
       - organizations/finalizers
       - loginpolicies/finalizers
+      - projectgrants/finalizers
+      - usergrants/finalizers
+      - projectmembers/finalizers
+      - applicationkeys/finalizers
+      - personalaccesstokens/finalizers
+      - passwordcomplexitypolicies/finalizers
+      - lockoutpolicies/finalizers
     verbs:
       - update
   - apiGroups:
