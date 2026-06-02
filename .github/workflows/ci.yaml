@@ -21,3 +21,6 @@ jobs:
 
       - name: Run all checks
         run: devbox run just check
+
+      - name: Verify generated files are committed
+        run: devbox run just verify-generate
