@@ -265,6 +265,24 @@ func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, pr
 	return nil
 }
 
+// clientIDKey returns the configurable key name for the client ID in the Secret.
+// Defaults to "client_id" if not specified.
+func clientIDKey(cr *zitadelv1alpha1.OIDCApp) string {
+	if cr.Spec.SecretRef.Keys != nil && cr.Spec.SecretRef.Keys.ClientId != "" {
+		return cr.Spec.SecretRef.Keys.ClientId
+	}
+	return "client_id"
+}
+
+// clientSecretKey returns the configurable key name for the client secret in the Secret.
+// Defaults to "client_secret" if not specified.
+func clientSecretKey(cr *zitadelv1alpha1.OIDCApp) string {
+	if cr.Spec.SecretRef.Keys != nil && cr.Spec.SecretRef.Keys.ClientSecret != "" {
+		return cr.Spec.SecretRef.Keys.ClientSecret
+	}
+	return "client_secret"
+}
+
 func (r *OIDCAppReconciler) ensureSecret(ctx context.Context, cr *zitadelv1alpha1.OIDCApp, clientID, clientSecret string) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -277,8 +295,12 @@ func (r *OIDCAppReconciler) ensureSecret(ctx context.Context, cr *zitadelv1alpha
 		if secret.Data == nil {
 			secret.Data = make(map[string][]byte)
 		}
-		secret.Data["client_id"] = []byte(clientID)
-		secret.Data["client_secret"] = []byte(clientSecret)
+		secret.Data[clientIDKey(cr)] = []byte(clientID)
+		secret.Data[clientSecretKey(cr)] = []byte(clientSecret)
+		// Write extra data entries into the Secret.
+		for k, v := range cr.Spec.SecretRef.ExtraData {
+			secret.Data[k] = []byte(v)
+		}
 		return nil
 	})
 	return err
@@ -291,20 +313,44 @@ func (r *OIDCAppReconciler) ensureSecretClientID(ctx context.Context, cr *zitade
 		Namespace: cr.Namespace,
 	}, secret)
 	if err != nil {
-		// Secret doesn't exist yet, create with just client_id.
+		// Secret doesn't exist yet, create with client_id + extra data.
 		if client.IgnoreNotFound(err) == nil {
+			data := map[string][]byte{
+				clientIDKey(cr): []byte(clientID),
+			}
+			for k, v := range cr.Spec.SecretRef.ExtraData {
+				data[k] = []byte(v)
+			}
 			newSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      cr.Spec.SecretRef.Name,
 					Namespace: cr.Namespace,
 				},
-				Data: map[string][]byte{
-					"client_id": []byte(clientID),
-				},
+				Data: data,
 			}
 			return r.Create(ctx, newSecret)
 		}
 		return err
+	}
+
+	// Secret exists — ensure client_id and extra data are up to date.
+	updated := false
+	if secret.Data == nil {
+		secret.Data = make(map[string][]byte)
+	}
+	idKey := clientIDKey(cr)
+	if string(secret.Data[idKey]) != clientID {
+		secret.Data[idKey] = []byte(clientID)
+		updated = true
+	}
+	for k, v := range cr.Spec.SecretRef.ExtraData {
+		if string(secret.Data[k]) != v {
+			secret.Data[k] = []byte(v)
+			updated = true
+		}
+	}
+	if updated {
+		return r.Update(ctx, secret)
 	}
 	return nil
 }

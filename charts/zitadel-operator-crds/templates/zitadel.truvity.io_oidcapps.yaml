@@ -88,6 +88,28 @@ spec:
                 description: SecretRef references the Secret where the client secret
                   will be stored.
                 properties:
+                  extraData:
+                    additionalProperties:
+                      type: string
+                    description: ExtraData adds static key-value pairs to the generated
+                      secret.
+                    type: object
+                  keys:
+                    description: |-
+                      Keys customizes the secret key names for clientId and clientSecret.
+                      Defaults: clientId → "client_id", clientSecret → "client_secret"
+                    properties:
+                      clientId:
+                        description: |-
+                          ClientId is the key name for the client ID in the generated secret.
+                          Default: "client_id"
+                        type: string
+                      clientSecret:
+                        description: |-
+                          ClientSecret is the key name for the client secret in the generated secret.
+                          Default: "client_secret"
+                        type: string
+                    type: object
                   name:
                     description: Name is the name of the Secret.
                     type: string
