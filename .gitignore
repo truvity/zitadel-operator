@@ -32,3 +32,4 @@ coverage.html
 
 # Generated CRD manifests (committed separately)
 config/crd/bases/
+core.*

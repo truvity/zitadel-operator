@@ -30,7 +30,6 @@ kos:
     base_import_paths: true
     base_image: gcr.io/distroless/static:nonroot
     sbom: none
-    repository: ghcr.io/truvity/zitadel-operator
     labels:
       org.opencontainers.image.title: zitadel-operator
       org.opencontainers.image.version: "{{.Version}}"
