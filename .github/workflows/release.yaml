@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: jetify-com/devbox-install-action@v0.12.0
+        with:
+          enable-cache: true
+
+      - name: Login to GHCR (ko)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | devbox run ko login ghcr.io -u ${{ github.actor }} --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run GoReleaser
+        run: devbox run goreleaser release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KO_DOCKER_REPO: ghcr.io/truvity/zitadel-operator
+
+      - name: Login to GHCR (helm)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | devbox run helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Helm charts
+        run: devbox run just helm-push ${GITHUB_REF_NAME#v}

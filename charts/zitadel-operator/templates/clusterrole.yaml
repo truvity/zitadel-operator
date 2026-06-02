@@ -1,0 +1,80 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "zitadel-operator.fullname" . }}
+  labels:
+    {{- include "zitadel-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - zitadel.truvity.io
+    resources:
+      - projects
+      - oidcapps
+      - identityproviders
+      - machineusers
+      - organizations
+      - loginpolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - zitadel.truvity.io
+    resources:
+      - projects/status
+      - oidcapps/status
+      - identityproviders/status
+      - machineusers/status
+      - organizations/status
+      - loginpolicies/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups:
+      - zitadel.truvity.io
+    resources:
+      - projects/finalizers
+      - oidcapps/finalizers
+      - identityproviders/finalizers
+      - machineusers/finalizers
+      - organizations/finalizers
+      - loginpolicies/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+{{- end }}

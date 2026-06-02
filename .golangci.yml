@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
 
@@ -8,25 +10,31 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    - gosimple
     - gocritic
-    - gofmt
-    - goimports
     - misspell
     - unconvert
     - unparam
     - nolintlint
+    - gosec
 
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-  goimports:
-    local-prefixes: github.com/truvity/zitadel-operator
-  misspell:
-    locale: US
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+    misspell:
+      locale: US
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/truvity/zitadel-operator
 
 issues:
   exclude-rules:

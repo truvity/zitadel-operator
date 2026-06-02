@@ -4,14 +4,16 @@ A Kubernetes operator for managing [Zitadel](https://zitadel.com) resources decl
 
 ## Overview
 
-The Zitadel Operator watches six CRDs under API group `zitadel.truvity.io/v1alpha1` and reconciles them against the Zitadel API using the official `github.com/zitadel/zitadel-go/v3` SDK:
+The Zitadel Operator watches six CRDs under API group `zitadel.truvity.io/v1alpha1` and reconciles them against the Zitadel API using the official `zitadel-go/v3` SDK (gRPC, v2 APIs):
 
-- **OIDCApp** (namespaced) — OIDC application registrations
-- **Project** (cluster-scoped) — Zitadel projects with roles
-- **IdentityProvider** (cluster-scoped) — External IdP federations
-- **Organization** (cluster-scoped) — Zitadel organizations
-- **MachineUser** (namespaced) — Service accounts with key-based auth
-- **LoginPolicy** (cluster-scoped) — Login policy configuration
+| CRD                | Scope     | Description                          |
+| ------------------ | --------- | ------------------------------------ |
+| OIDCApp            | Namespaced | OIDC application registrations       |
+| Project            | Cluster    | Zitadel projects with roles          |
+| IdentityProvider   | Cluster    | External IdP federations             |
+| Organization       | Cluster    | Zitadel organizations                |
+| MachineUser        | Namespaced | Service accounts with key-based auth |
+| LoginPolicy        | Cluster    | Login policy configuration           |
 
 ## Features
 
@@ -39,21 +41,45 @@ helm install zitadel-operator oci://ghcr.io/truvity/zitadel-operator/charts/zita
   --set zitadel.jwtSecretName=zitadel-admin-key
 ```
 
+## Publishing
+
+- Container image: built with [ko](https://ko.build), pushed to `ghcr.io/truvity/zitadel-operator`
+- Helm charts: pushed to `oci://ghcr.io/truvity/charts` via OCI
+
 ## Development
 
 ### Prerequisites
 
-- [devbox](https://www.jetify.com/devbox) (provides Go, golangci-lint, gopls, goreleaser)
+- [devbox](https://www.jetify.com/devbox) (provides Go, golangci-lint, gopls, goreleaser, ko, helm, govulncheck, just)
 
 ### Getting Started
 
 ```bash
 devbox shell
-make generate   # Generate CRD manifests
-make build      # Build the operator binary
-make test       # Run tests
-make lint       # Run linters
+just generate   # Generate deepcopy methods and CRD manifests
+just build      # Build the operator binary
+just test       # Run tests
+just lint       # Run linters
+just vuln       # Run Go vulnerability check
+just check      # Run all checks (generate + build + test + lint + vuln)
 ```
+
+### Available Recipes
+
+| Recipe         | Description                                        |
+| -------------- | -------------------------------------------------- |
+| `generate`     | Generate deepcopy methods and CRD manifests        |
+| `build`        | Build the operator binary                          |
+| `test`         | Run tests                                          |
+| `lint`         | Run linters                                        |
+| `vuln`         | Run Go vulnerability check (govulncheck)           |
+| `check`        | Run all checks (generate + build + test + lint + vuln) |
+| `snapshot`     | Build a snapshot release locally                   |
+| `release`      | Create a release tag and push                      |
+| `helm-package` | Package Helm charts locally                        |
+| `helm-push`    | Push Helm charts to GHCR                           |
+| `clean`        | Clean build artifacts                              |
+| `tidy`         | Run go mod tidy                                    |
 
 ## License
 

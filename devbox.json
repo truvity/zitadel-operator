@@ -3,10 +3,16 @@
     "go@latest",
     "golangci-lint@latest",
     "gopls@latest",
-    "goreleaser@latest"
+    "goreleaser@latest",
+    "just@latest",
+    "kubernetes-controller-tools@latest",
+    "just-lsp@latest",
+    "govulncheck@latest",
+    "ko@latest",
+    "helm@latest"
   ],
   "shell": {
     "init_hook": [],
-    "scripts": {}
+    "scripts":   {}
   }
 }

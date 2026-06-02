@@ -1,0 +1,42 @@
+project_name: zitadel-operator
+
+version: 2
+
+builds:
+  - id: zitadel-operator
+    main: ./cmd/operator
+    binary: zitadel-operator
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+kos:
+  - id: zitadel-operator
+    build: zitadel-operator
+    tags:
+      - "{{.Version}}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    bare: true
+    preserve_import_paths: false
+    base_import_paths: true
+    base_image: gcr.io/distroless/static:nonroot
+    sbom: none
+    repository: ghcr.io/truvity/zitadel-operator
+    labels:
+      org.opencontainers.image.title: zitadel-operator
+      org.opencontainers.image.version: "{{.Version}}"
+      org.opencontainers.image.source: https://github.com/truvity/zitadel-operator
+
+release:
+  github:
+    owner: truvity
+    name: zitadel-operator

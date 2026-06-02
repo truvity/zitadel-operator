@@ -1,0 +1,38 @@
+image:
+  repository: ghcr.io/truvity/zitadel-operator
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+zitadel:
+  domain: ""
+  port: "8080"
+  insecure: true
+  jwtSecretName: zitadel-admin-sa
+  jwtSecretNamespace: zitadel
+  mode: iam-owner
+  project: ""
+
+leaderElection:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
