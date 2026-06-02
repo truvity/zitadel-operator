@@ -33,19 +33,19 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
-      - projects/status
-      - oidcapps/status
-      - identityproviders/status
-      - machineusers/status
-      - organizations/status
-      - loginpolicies/status
-      - projectgrants/status
-      - usergrants/status
-      - projectmembers/status
       - applicationkeys/status
-      - personalaccesstokens/status
-      - passwordcomplexitypolicies/status
+      - identityproviders/status
       - lockoutpolicies/status
+      - loginpolicies/status
+      - machineusers/status
+      - oidcapps/status
+      - organizations/status
+      - passwordcomplexitypolicies/status
+      - personalaccesstokens/status
+      - projectgrants/status
+      - projectmembers/status
+      - projects/status
+      - usergrants/status
     verbs:
       - get
       - update
@@ -53,19 +53,19 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
-      - projects/finalizers
-      - oidcapps/finalizers
-      - identityproviders/finalizers
-      - machineusers/finalizers
-      - organizations/finalizers
-      - loginpolicies/finalizers
-      - projectgrants/finalizers
-      - usergrants/finalizers
-      - projectmembers/finalizers
       - applicationkeys/finalizers
-      - personalaccesstokens/finalizers
-      - passwordcomplexitypolicies/finalizers
+      - identityproviders/finalizers
       - lockoutpolicies/finalizers
+      - loginpolicies/finalizers
+      - machineusers/finalizers
+      - oidcapps/finalizers
+      - organizations/finalizers
+      - passwordcomplexitypolicies/finalizers
+      - personalaccesstokens/finalizers
+      - projectgrants/finalizers
+      - projectmembers/finalizers
+      - projects/finalizers
+      - usergrants/finalizers
     verbs:
       - update
   - apiGroups:
