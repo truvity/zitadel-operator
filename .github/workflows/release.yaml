@@ -17,8 +17,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: DeterminateSystems/nix-installer-action@main
-
       - uses: jetify-com/devbox-install-action@v0.15.0
         with:
           enable-cache: true
