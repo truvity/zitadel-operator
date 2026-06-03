@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,7 +60,10 @@ func (r *LockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		MaxOtpAttempts:      uint32(cr.Spec.MaxOtpAttempts),      //nolint:gosec // value range validated by k8s schema
 	})
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("updating lockout policy: %w", err)
+		// Zitadel returns FailedPrecondition when the policy hasn't changed — treat as success.
+		if status.Code(err) != codes.FailedPrecondition {
+			return ctrl.Result{}, fmt.Errorf("updating lockout policy: %w", err)
+		}
 	}
 
 	// Update status.

@@ -98,7 +98,10 @@ func (r *ActionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			AllowedToFail: cr.Spec.AllowedToFail,
 		})
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("updating action: %w", err)
+			// Zitadel returns FailedPrecondition when the action hasn't changed — treat as success.
+			if status.Code(err) != codes.FailedPrecondition {
+				return ctrl.Result{}, fmt.Errorf("updating action: %w", err)
+			}
 		}
 	}
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -61,7 +63,10 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 		HasSymbol:    cr.Spec.HasSymbol,
 	})
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("updating password complexity policy: %w", err)
+		// Zitadel returns FailedPrecondition when the policy hasn't changed — treat as success.
+		if status.Code(err) != codes.FailedPrecondition {
+			return ctrl.Result{}, fmt.Errorf("updating password complexity policy: %w", err)
+		}
 	}
 
 	// Update status.
