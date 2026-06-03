@@ -101,7 +101,10 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			RoleKeys: cr.Spec.RoleKeys,
 		})
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("updating user grant: %w", err)
+			// Zitadel returns FailedPrecondition when the grant hasn't changed — treat as success.
+			if status.Code(err) != codes.FailedPrecondition {
+				return ctrl.Result{}, fmt.Errorf("updating user grant: %w", err)
+			}
 		}
 	}
 
