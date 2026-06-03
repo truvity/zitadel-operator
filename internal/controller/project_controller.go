@@ -16,6 +16,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	filterv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	projectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
 )
 
@@ -94,6 +95,20 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 			ProjectId: cr.Status.ProjectId,
 		})
 		if err == nil {
+			// Ensure project settings are up to date.
+			if cr.Spec.CheckAuthorizationOnAuth {
+				//nolint:staticcheck // Management v1 UpdateProject needed for ProjectRoleCheck (not in v2 API)
+				_, updateErr := r.Zitadel.Management().UpdateProject(ctx, &management.UpdateProjectRequest{
+					Id:                   cr.Status.ProjectId,
+					Name:                 cr.Name,
+					ProjectRoleAssertion: cr.Spec.AssertRolesOnAuth,
+					ProjectRoleCheck:     cr.Spec.CheckAuthorizationOnAuth,
+					HasProjectCheck:      cr.Spec.CheckAuthorizationOnAuth,
+				})
+				if updateErr != nil && status.Code(updateErr) != codes.FailedPrecondition {
+					return "", fmt.Errorf("updating project check settings: %w", updateErr)
+				}
+			}
 			return cr.Status.ProjectId, nil
 		}
 		if status.Code(err) != codes.NotFound {
@@ -149,7 +164,25 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 		return "", fmt.Errorf("creating project: %w", err)
 	}
 
-	return createResp.GetProjectId(), nil
+	projectID := createResp.GetProjectId()
+
+	// Update project with authorization check settings via Management v1 API
+	// (v2 CreateProject doesn't support ProjectRoleCheck/HasProjectCheck).
+	if cr.Spec.CheckAuthorizationOnAuth {
+		//nolint:staticcheck // Management v1 UpdateProject needed for ProjectRoleCheck (not in v2 API)
+		_, updateErr := r.Zitadel.Management().UpdateProject(ctx, &management.UpdateProjectRequest{
+			Id:                   projectID,
+			Name:                 cr.Name,
+			ProjectRoleAssertion: cr.Spec.AssertRolesOnAuth,
+			ProjectRoleCheck:     cr.Spec.CheckAuthorizationOnAuth,
+			HasProjectCheck:      cr.Spec.CheckAuthorizationOnAuth,
+		})
+		if updateErr != nil && status.Code(updateErr) != codes.FailedPrecondition {
+			return "", fmt.Errorf("updating project check settings: %w", updateErr)
+		}
+	}
+
+	return projectID, nil
 }
 
 func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID string, desiredRoles []string) error {

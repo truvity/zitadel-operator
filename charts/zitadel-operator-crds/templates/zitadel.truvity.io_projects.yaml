@@ -47,6 +47,13 @@ spec:
                 description: AssertRolesOnAuth determines whether roles are asserted
                   on authentication.
                 type: boolean
+              checkAuthorizationOnAuth:
+                description: |-
+                  CheckAuthorizationOnAuth enables authorization check on authentication.
+                  When true, only users with explicit role assignments can authenticate,
+                  and user grants are loaded into the Action context (ctx.v1.user.grants).
+                  Required for the groups claim Action to work.
+                type: boolean
               organizationId:
                 description: |-
                   OrganizationId is the Zitadel organization ID this project belongs to.

@@ -14,6 +14,13 @@ type ProjectSpec struct {
 	// AssertRolesOnAuth determines whether roles are asserted on authentication.
 	AssertRolesOnAuth bool `json:"assertRolesOnAuth,omitempty"`
 
+	// CheckAuthorizationOnAuth enables authorization check on authentication.
+	// When true, only users with explicit role assignments can authenticate,
+	// and user grants are loaded into the Action context (ctx.v1.user.grants).
+	// Required for the groups claim Action to work.
+	// +optional
+	CheckAuthorizationOnAuth bool `json:"checkAuthorizationOnAuth,omitempty"`
+
 	// Roles is the list of roles defined for this project.
 	Roles []string `json:"roles,omitempty"`
 }
