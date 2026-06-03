@@ -9,13 +9,16 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
+      - actions
       - applicationkeys
       - identityproviders
+      - instancemembers
       - lockoutpolicies
       - loginpolicies
       - machineusers
       - oidcapps
       - organizations
+      - orgmembers
       - passwordcomplexitypolicies
       - personalaccesstokens
       - projectgrants
@@ -33,13 +36,16 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
+      - actions/status
       - applicationkeys/status
       - identityproviders/status
+      - instancemembers/status
       - lockoutpolicies/status
       - loginpolicies/status
       - machineusers/status
       - oidcapps/status
       - organizations/status
+      - orgmembers/status
       - passwordcomplexitypolicies/status
       - personalaccesstokens/status
       - projectgrants/status
@@ -53,13 +59,16 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
+      - actions/finalizers
       - applicationkeys/finalizers
       - identityproviders/finalizers
+      - instancemembers/finalizers
       - lockoutpolicies/finalizers
       - loginpolicies/finalizers
       - machineusers/finalizers
       - oidcapps/finalizers
       - organizations/finalizers
+      - orgmembers/finalizers
       - passwordcomplexitypolicies/finalizers
       - personalaccesstokens/finalizers
       - projectgrants/finalizers
