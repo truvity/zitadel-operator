@@ -2,10 +2,17 @@
 package controller
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/truvity/zitadel-operator/internal/zitadel"
+
+	objectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
+	userv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 )
 
 const (
@@ -32,4 +39,29 @@ func removeFinalizer(obj client.Object) bool {
 		return true
 	}
 	return false
+}
+
+// resolveUserIDByEmail resolves a user email address to a Zitadel user ID using the v2 User service.
+func resolveUserIDByEmail(ctx context.Context, z *zitadel.Client, email string) (string, error) {
+	resp, err := z.User().ListUsers(ctx, &userv2.ListUsersRequest{
+		Queries: []*userv2.SearchQuery{
+			{
+				Query: &userv2.SearchQuery_EmailQuery{
+					EmailQuery: &userv2.EmailQuery{
+						EmailAddress: email,
+						Method:       objectv2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS,
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("listing users by email %q: %w", email, err)
+	}
+
+	if len(resp.GetResult()) == 0 {
+		return "", fmt.Errorf("user with email %q not found", email)
+	}
+
+	return resp.GetResult()[0].GetUserId(), nil
 }

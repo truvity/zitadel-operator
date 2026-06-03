@@ -4,30 +4,24 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: usergrants.zitadel.truvity.io
+  name: actions.zitadel.truvity.io
 spec:
   group: zitadel.truvity.io
   names:
-    kind: UserGrant
-    listKind: UserGrantList
-    plural: usergrants
-    singular: usergrant
+    kind: Action
+    listKind: ActionList
+    plural: actions
+    singular: action
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.userEmail
-      name: Email
-      type: string
-    - jsonPath: .spec.projectRef
-      name: Project
-      type: string
     - jsonPath: .status.ready
       name: Ready
       type: boolean
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: UserGrant is the Schema for the usergrants API.
+        description: Action is the Schema for the actions API.
         properties:
           apiVersion:
             description: |-
@@ -47,29 +41,47 @@ spec:
           metadata:
             type: object
           spec:
-            description: UserGrantSpec defines the desired state of UserGrant.
+            description: ActionSpec defines the desired state of Action.
             properties:
-              projectRef:
-                description: ProjectRef is the name of the Zitadel Project CR this
-                  grant belongs to.
+              allowedToFail:
+                description: AllowedToFail indicates whether the action is allowed
+                  to fail without blocking the flow.
+                type: boolean
+              script:
+                description: Script is the JavaScript source code of the action.
                 type: string
-              roleKeys:
-                description: RoleKeys is the list of role keys granted to the user.
+              timeout:
+                description: 'Timeout is the action timeout in seconds. Default: 10.'
+                type: integer
+              triggers:
+                description: Triggers defines the flow + trigger type bindings for
+                  this action.
                 items:
-                  type: string
+                  description: ActionTrigger defines a flow and trigger type binding
+                    for an Action.
+                  properties:
+                    flowType:
+                      description: FlowType is the Zitadel flow type (e.g., "1" for
+                        Complement Token).
+                      type: string
+                    triggerType:
+                      description: TriggerType is the Zitadel trigger type (e.g.,
+                        "1" for Pre access token creation).
+                      type: string
+                  required:
+                  - flowType
+                  - triggerType
+                  type: object
                 type: array
-              userEmail:
-                description: UserEmail is the email of the Zitadel user to grant roles
-                  to.
-                type: string
             required:
-            - projectRef
-            - roleKeys
-            - userEmail
+            - script
             type: object
           status:
-            description: UserGrantStatus defines the observed state of UserGrant.
+            description: ActionStatus defines the observed state of Action.
             properties:
+              actionId:
+                description: ActionId is the Zitadel action ID.
+                type: string
               conditions:
                 description: Conditions represent the latest available observations
                   of the resource's state.
@@ -128,17 +140,13 @@ spec:
                   - type
                   type: object
                 type: array
-              grantId:
-                description: GrantId is the Zitadel user grant ID.
-                type: string
               lastSyncTime:
                 description: LastSyncTime is the last time the resource was synced
                   with Zitadel.
                 format: date-time
                 type: string
               ready:
-                description: Ready indicates whether the UserGrant is successfully
-                  synced.
+                description: Ready indicates whether the Action is successfully synced.
                 type: boolean
             type: object
         type: object

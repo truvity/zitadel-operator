@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -12,6 +14,10 @@ import (
 
 	zitadelv1alpha1 "github.com/truvity/zitadel-operator/api/v1alpha1"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
+
+	filterv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+	projectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
 )
 
 // ProjectMemberReconciler reconciles a ProjectMember object.
@@ -32,9 +38,21 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Resolve projectRef → projectId.
+	projectID, err := r.resolveProjectID(ctx, cr.Spec.ProjectRef)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("resolving project %q: %w", cr.Spec.ProjectRef, err)
+	}
+
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		// TODO: Remove project member from Zitadel.
+		_, err := r.Zitadel.Management().RemoveProjectMember(ctx, &management.RemoveProjectMemberRequest{ //nolint:staticcheck // v1 API required
+			ProjectId: projectID,
+			UserId:    cr.Spec.UserId,
+		})
+		if err != nil && status.Code(err) != codes.NotFound {
+			return ctrl.Result{}, fmt.Errorf("removing project member: %w", err)
+		}
 		if removeFinalizer(&cr) {
 			if err := r.Update(ctx, &cr); err != nil {
 				return ctrl.Result{}, err
@@ -50,21 +68,26 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// TODO: Implement project member creation/sync with Zitadel API.
-	logger.Info("projectmember reconcile not yet implemented",
-		"projectRef", cr.Spec.ProjectRef,
-		"userId", cr.Spec.UserId)
+	// Add project member (idempotent — AddProjectMember updates roles if member already exists).
+	_, err = r.Zitadel.Management().AddProjectMember(ctx, &management.AddProjectMemberRequest{ //nolint:staticcheck // v1 API required
+		ProjectId: projectID,
+		UserId:    cr.Spec.UserId,
+		Roles:     cr.Spec.Roles,
+	})
+	if err != nil && status.Code(err) != codes.AlreadyExists {
+		return ctrl.Result{}, fmt.Errorf("adding project member: %w", err)
+	}
 
-	// Update status as not ready (not yet implemented).
+	// Update status.
 	now := metav1.NewTime(time.Now())
-	cr.Status.Ready = false
+	cr.Status.Ready = true
 	cr.Status.LastSyncTime = &now
 	cr.Status.Conditions = []metav1.Condition{
 		{
 			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "NotImplemented",
-			Message:            fmt.Sprintf("ProjectMember reconciliation not yet implemented for user %q in project %q", cr.Spec.UserId, cr.Spec.ProjectRef),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Synced",
+			Message:            fmt.Sprintf("ProjectMember user %q synced to project %q", cr.Spec.UserId, cr.Spec.ProjectRef),
 			LastTransitionTime: now,
 		},
 	}
@@ -72,7 +95,34 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	logger.Info("projectmember reconciled", "projectRef", cr.Spec.ProjectRef, "userId", cr.Spec.UserId)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *ProjectMemberReconciler) resolveProjectID(ctx context.Context, projectName string) (string, error) {
+	listResp, err := r.Zitadel.Project().ListProjects(ctx, &projectv2.ListProjectsRequest{
+		Filters: []*projectv2.ProjectSearchFilter{
+			{
+				Filter: &projectv2.ProjectSearchFilter_ProjectNameFilter{
+					ProjectNameFilter: &projectv2.ProjectNameFilter{
+						ProjectName: projectName,
+						Method:      filterv2.TextFilterMethod_TEXT_FILTER_METHOD_EQUALS,
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	for _, p := range listResp.GetProjects() {
+		if p.GetName() == projectName {
+			return p.GetProjectId(), nil
+		}
+	}
+
+	return "", fmt.Errorf("project %q not found", projectName)
 }
 
 // SetupWithManager sets up the controller with the Manager.

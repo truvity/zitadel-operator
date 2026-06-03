@@ -4,22 +4,19 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: usergrants.zitadel.truvity.io
+  name: orgmembers.zitadel.truvity.io
 spec:
   group: zitadel.truvity.io
   names:
-    kind: UserGrant
-    listKind: UserGrantList
-    plural: usergrants
-    singular: usergrant
+    kind: OrgMember
+    listKind: OrgMemberList
+    plural: orgmembers
+    singular: orgmember
   scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .spec.userEmail
       name: Email
-      type: string
-    - jsonPath: .spec.projectRef
-      name: Project
       type: string
     - jsonPath: .status.ready
       name: Ready
@@ -27,7 +24,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: UserGrant is the Schema for the usergrants API.
+        description: OrgMember is the Schema for the orgmembers API.
         properties:
           apiVersion:
             description: |-
@@ -47,28 +44,24 @@ spec:
           metadata:
             type: object
           spec:
-            description: UserGrantSpec defines the desired state of UserGrant.
+            description: OrgMemberSpec defines the desired state of OrgMember.
             properties:
-              projectRef:
-                description: ProjectRef is the name of the Zitadel Project CR this
-                  grant belongs to.
-                type: string
-              roleKeys:
-                description: RoleKeys is the list of role keys granted to the user.
+              roles:
+                description: Roles is the list of roles for this org member (e.g.,
+                  ORG_OWNER).
                 items:
                   type: string
                 type: array
               userEmail:
-                description: UserEmail is the email of the Zitadel user to grant roles
-                  to.
+                description: UserEmail is the email of the Zitadel user to add as
+                  an org member.
                 type: string
             required:
-            - projectRef
-            - roleKeys
+            - roles
             - userEmail
             type: object
           status:
-            description: UserGrantStatus defines the observed state of UserGrant.
+            description: OrgMemberStatus defines the observed state of OrgMember.
             properties:
               conditions:
                 description: Conditions represent the latest available observations
@@ -128,18 +121,18 @@ spec:
                   - type
                   type: object
                 type: array
-              grantId:
-                description: GrantId is the Zitadel user grant ID.
-                type: string
               lastSyncTime:
                 description: LastSyncTime is the last time the resource was synced
                   with Zitadel.
                 format: date-time
                 type: string
               ready:
-                description: Ready indicates whether the UserGrant is successfully
+                description: Ready indicates whether the OrgMember is successfully
                   synced.
                 type: boolean
+              userId:
+                description: UserId is the resolved Zitadel user ID.
+                type: string
             type: object
         type: object
     served: true

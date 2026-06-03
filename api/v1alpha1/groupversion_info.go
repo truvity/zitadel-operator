@@ -35,6 +35,9 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&PersonalAccessToken{}, &PersonalAccessTokenList{},
 		&PasswordComplexityPolicy{}, &PasswordComplexityPolicyList{},
 		&LockoutPolicy{}, &LockoutPolicyList{},
+		&Action{}, &ActionList{},
+		&InstanceMember{}, &InstanceMemberList{},
+		&OrgMember{}, &OrgMemberList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil

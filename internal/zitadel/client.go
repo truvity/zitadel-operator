@@ -14,6 +14,7 @@ import (
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
 	applicationv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/application/v2"
 	idpv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/idp/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	orgv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
 	projectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
 	settingsv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/settings/v2"
@@ -191,6 +192,11 @@ func (c *Client) IDP() idpv2.IdentityProviderServiceClient {
 // Settings returns the v2 Settings service client.
 func (c *Client) Settings() settingsv2.SettingsServiceClient {
 	return c.inner.SettingsServiceV2()
+}
+
+// Management returns the Management service client (for org-level operations).
+func (c *Client) Management() management.ManagementServiceClient {
+	return c.inner.ManagementService()
 }
 
 // Admin returns the Admin service client (for instance-level operations).

@@ -12,6 +12,8 @@ import (
 
 	zitadelv1alpha1 "github.com/truvity/zitadel-operator/api/v1alpha1"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
+
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
 )
 
 // LockoutPolicyReconciler reconciles a LockoutPolicy object.
@@ -32,9 +34,9 @@ func (r *LockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Handle deletion.
+	// Handle deletion — no reset available at instance level, just remove finalizer.
 	if !cr.DeletionTimestamp.IsZero() {
-		// TODO: Reset lockout policy in Zitadel.
+		logger.Info("lockoutpolicy deleted, instance-level policy remains as-is")
 		if removeFinalizer(&cr) {
 			if err := r.Update(ctx, &cr); err != nil {
 				return ctrl.Result{}, err
@@ -50,20 +52,25 @@ func (r *LockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// TODO: Implement lockout policy sync with Zitadel API.
-	logger.Info("lockoutpolicy reconcile not yet implemented",
-		"maxPasswordAttempts", cr.Spec.MaxPasswordAttempts)
+	// Update lockout policy in Zitadel.
+	_, err := r.Zitadel.Admin().UpdateLockoutPolicy(ctx, &admin.UpdateLockoutPolicyRequest{
+		MaxPasswordAttempts: uint32(cr.Spec.MaxPasswordAttempts), //nolint:gosec // value range validated by k8s schema
+		MaxOtpAttempts:      uint32(cr.Spec.MaxOtpAttempts),      //nolint:gosec // value range validated by k8s schema
+	})
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("updating lockout policy: %w", err)
+	}
 
-	// Update status as not ready (not yet implemented).
+	// Update status.
 	now := metav1.NewTime(time.Now())
-	cr.Status.Ready = false
+	cr.Status.Ready = true
 	cr.Status.LastSyncTime = &now
 	cr.Status.Conditions = []metav1.Condition{
 		{
 			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "NotImplemented",
-			Message:            fmt.Sprintf("LockoutPolicy reconciliation not yet implemented (maxPasswordAttempts=%d)", cr.Spec.MaxPasswordAttempts),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Synced",
+			Message:            fmt.Sprintf("LockoutPolicy synced (maxPasswordAttempts=%d)", cr.Spec.MaxPasswordAttempts),
 			LastTransitionTime: now,
 		},
 	}
@@ -71,6 +78,7 @@ func (r *LockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	logger.Info("lockoutpolicy reconciled", "maxPasswordAttempts", cr.Spec.MaxPasswordAttempts)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 

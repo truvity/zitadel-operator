@@ -6,8 +6,8 @@ import (
 
 // UserGrantSpec defines the desired state of UserGrant.
 type UserGrantSpec struct {
-	// UserId is the Zitadel user ID to grant roles to.
-	UserId string `json:"userId"`
+	// UserEmail is the email of the Zitadel user to grant roles to.
+	UserEmail string `json:"userEmail"`
 
 	// ProjectRef is the name of the Zitadel Project CR this grant belongs to.
 	ProjectRef string `json:"projectRef"`
@@ -33,7 +33,8 @@ type UserGrantStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="User",type=string,JSONPath=`.spec.userId`
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Email",type=string,JSONPath=`.spec.userEmail`
 // +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.projectRef`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
 

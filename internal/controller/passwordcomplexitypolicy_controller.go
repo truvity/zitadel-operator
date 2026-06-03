@@ -12,6 +12,8 @@ import (
 
 	zitadelv1alpha1 "github.com/truvity/zitadel-operator/api/v1alpha1"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
+
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
 )
 
 // PasswordComplexityPolicyReconciler reconciles a PasswordComplexityPolicy object.
@@ -32,9 +34,9 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Handle deletion.
+	// Handle deletion — no reset available at instance level, just remove finalizer.
 	if !cr.DeletionTimestamp.IsZero() {
-		// TODO: Reset password complexity policy in Zitadel.
+		logger.Info("passwordcomplexitypolicy deleted, instance-level policy remains as-is")
 		if removeFinalizer(&cr) {
 			if err := r.Update(ctx, &cr); err != nil {
 				return ctrl.Result{}, err
@@ -50,20 +52,28 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 		}
 	}
 
-	// TODO: Implement password complexity policy sync with Zitadel API.
-	logger.Info("passwordcomplexitypolicy reconcile not yet implemented",
-		"minLength", cr.Spec.MinLength)
+	// Update password complexity policy in Zitadel.
+	_, err := r.Zitadel.Admin().UpdatePasswordComplexityPolicy(ctx, &admin.UpdatePasswordComplexityPolicyRequest{
+		MinLength:    uint32(cr.Spec.MinLength), //nolint:gosec // value range validated by k8s schema
+		HasUppercase: cr.Spec.HasUppercase,
+		HasLowercase: cr.Spec.HasLowercase,
+		HasNumber:    cr.Spec.HasNumber,
+		HasSymbol:    cr.Spec.HasSymbol,
+	})
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("updating password complexity policy: %w", err)
+	}
 
-	// Update status as not ready (not yet implemented).
+	// Update status.
 	now := metav1.NewTime(time.Now())
-	cr.Status.Ready = false
+	cr.Status.Ready = true
 	cr.Status.LastSyncTime = &now
 	cr.Status.Conditions = []metav1.Condition{
 		{
 			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "NotImplemented",
-			Message:            fmt.Sprintf("PasswordComplexityPolicy reconciliation not yet implemented (minLength=%d)", cr.Spec.MinLength),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Synced",
+			Message:            fmt.Sprintf("PasswordComplexityPolicy synced (minLength=%d)", cr.Spec.MinLength),
 			LastTransitionTime: now,
 		},
 	}
@@ -71,6 +81,7 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, err
 	}
 
+	logger.Info("passwordcomplexitypolicy reconciled", "minLength", cr.Spec.MinLength)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
