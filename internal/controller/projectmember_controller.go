@@ -38,6 +38,20 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Resolve userId: prefer UserEmail when set, fall back to UserId.
+	userID := cr.Spec.UserId
+	if cr.Spec.UserEmail != "" {
+		resolved, err := resolveUserIDByEmail(ctx, r.Zitadel, cr.Spec.UserEmail)
+		if err != nil {
+			if isUserNotFoundError(err) {
+				logger.Info("user not found in Zitadel, setting UserPending condition", "email", cr.Spec.UserEmail)
+				return r.setUserPendingStatus(ctx, &cr)
+			}
+			return ctrl.Result{}, fmt.Errorf("resolving user email %q: %w", cr.Spec.UserEmail, err)
+		}
+		userID = resolved
+	}
+
 	// Resolve projectRef → projectId.
 	projectID, err := r.resolveProjectID(ctx, cr.Spec.ProjectRef)
 	if err != nil {
@@ -48,7 +62,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if !cr.DeletionTimestamp.IsZero() {
 		_, err := r.Zitadel.Management().RemoveProjectMember(ctx, &management.RemoveProjectMemberRequest{ //nolint:staticcheck // v1 API required
 			ProjectId: projectID,
-			UserId:    cr.Spec.UserId,
+			UserId:    userID,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
 			return ctrl.Result{}, fmt.Errorf("removing project member: %w", err)
@@ -71,7 +85,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Add project member (idempotent — AddProjectMember updates roles if member already exists).
 	_, err = r.Zitadel.Management().AddProjectMember(ctx, &management.AddProjectMemberRequest{ //nolint:staticcheck // v1 API required
 		ProjectId: projectID,
-		UserId:    cr.Spec.UserId,
+		UserId:    userID,
 		Roles:     cr.Spec.Roles,
 	})
 	if err != nil && status.Code(err) != codes.AlreadyExists {
@@ -87,7 +101,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			Type:               "Ready",
 			Status:             metav1.ConditionTrue,
 			Reason:             "Synced",
-			Message:            fmt.Sprintf("ProjectMember user %q synced to project %q", cr.Spec.UserId, cr.Spec.ProjectRef),
+			Message:            fmt.Sprintf("ProjectMember user %q synced to project %q", userID, cr.Spec.ProjectRef),
 			LastTransitionTime: now,
 		},
 	}
@@ -95,7 +109,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("projectmember reconciled", "projectRef", cr.Spec.ProjectRef, "userId", cr.Spec.UserId)
+	logger.Info("projectmember reconciled", "projectRef", cr.Spec.ProjectRef, "userId", userID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
@@ -131,4 +145,23 @@ func (r *ProjectMemberReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&zitadelv1alpha1.ProjectMember{}).
 		Named("projectmember").
 		Complete(r)
+}
+
+// setUserPendingStatus sets a UserPending condition and requeues after requeueInterval (5 minutes).
+func (r *ProjectMemberReconciler) setUserPendingStatus(ctx context.Context, cr *zitadelv1alpha1.ProjectMember) (ctrl.Result, error) {
+	now := metav1.NewTime(time.Now())
+	cr.Status.Ready = false
+	cr.Status.Conditions = []metav1.Condition{
+		{
+			Type:               "Ready",
+			Status:             metav1.ConditionFalse,
+			Reason:             "UserPending",
+			Message:            fmt.Sprintf("User %q has not logged in yet", cr.Spec.UserEmail),
+			LastTransitionTime: now,
+		},
+	}
+	if err := r.Status().Update(ctx, cr); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }

@@ -10,7 +10,13 @@ type ProjectMemberSpec struct {
 	ProjectRef string `json:"projectRef"`
 
 	// UserId is the Zitadel user ID to add as a project member.
-	UserId string `json:"userId"`
+	// +optional
+	UserId string `json:"userId,omitempty"`
+
+	// UserEmail is an alternative to UserId. When set, the controller resolves the email to a Zitadel user ID.
+	// The user must have logged in at least once.
+	// +optional
+	UserEmail string `json:"userEmail,omitempty"`
 
 	// Roles is the list of roles for this project member (e.g. PROJECT_OWNER).
 	Roles []string `json:"roles"`

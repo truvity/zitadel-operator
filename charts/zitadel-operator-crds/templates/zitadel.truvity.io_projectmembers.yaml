@@ -59,13 +59,17 @@ spec:
                 items:
                   type: string
                 type: array
+              userEmail:
+                description: |-
+                  UserEmail is an alternative to UserId. When set, the controller resolves the email to a Zitadel user ID.
+                  The user must have logged in at least once.
+                type: string
               userId:
                 description: UserId is the Zitadel user ID to add as a project member.
                 type: string
             required:
             - projectRef
             - roles
-            - userId
             type: object
           status:
             description: ProjectMemberStatus defines the observed state of ProjectMember.
