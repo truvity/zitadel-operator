@@ -113,7 +113,10 @@ func (r *ActionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			ActionIds:   []string{actionID},
 		})
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("setting trigger actions (flow=%s, trigger=%s): %w", trigger.FlowType, trigger.TriggerType, err)
+			// Zitadel returns FailedPrecondition when the trigger binding hasn't changed — treat as success.
+			if status.Code(err) != codes.FailedPrecondition {
+				return ctrl.Result{}, fmt.Errorf("setting trigger actions (flow=%s, trigger=%s): %w", trigger.FlowType, trigger.TriggerType, err)
+			}
 		}
 	}
 
