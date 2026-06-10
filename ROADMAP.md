@@ -35,7 +35,7 @@ Bug fixes only. No new features on v1alpha1 API.
 **Design:** [docs/DESIGN-v2.md](docs/DESIGN-v2.md)
 
 ### Step 0: Test Harness (REPL development mode)
-- [ ] `~/.zitadel/config.yaml` loader
+- [ ] `~/.config/zitadel-operator/config.yaml` loader
 - [ ] e2e-framework TestMain (Kind cluster up/down)
 - [ ] CRD install, one trivial test (Project lifecycle)
 
@@ -128,4 +128,4 @@ Bug fixes only. No new features on v1alpha1 API.
 | Package | Purpose | Deps | Command |
 |---------|---------|------|---------|
 | `tests/unit/` | Logic, normalization, filtering | None | `go test ./tests/unit/...` |
-| `tests/integration/` | Full reconcile loop (Kind + real Zitadel) | Docker, `~/.zitadel/config.yaml` | `go test -tags=integration ./tests/integration/...` |
+| `tests/integration/` | Full reconcile loop (Kind + real Zitadel) | Docker, `~/.config/zitadel-operator/config.yaml` | `go test -tags=integration ./tests/integration/...` |

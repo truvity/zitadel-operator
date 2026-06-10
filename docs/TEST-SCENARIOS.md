@@ -364,7 +364,7 @@ b# Zitadel Operator — E2E Test Scenarios
 ## Running Scenarios
 
 ```bash
-# All scenarios (requires Kind + real Zitadel configured in ~/.zitadel/config.yaml)
+# All scenarios (requires Kind + real Zitadel configured in ~/.config/zitadel-operator/config.yaml)
 go test -tags=integration -v ./tests/integration/...
 
 # Specific scenario group

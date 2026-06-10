@@ -60,7 +60,7 @@ zitadel-operator --config=/etc/zitadel-operator/config.yaml
 ### Why Config File Only (no CLI flags)
 
 - **One source of truth** — all config in one place, no precedence rules between flags/env/file
-- **Matches test pattern** — `~/.zitadel/config.yaml` for local dev/tests, same format in production
+- **Matches test pattern** — `~/.config/zitadel-operator/config.yaml` for local dev/tests, same format in production
 - **Simpler Helm chart** — render a ConfigMap, mount it; no long `args:` list in the Deployment
 - **Handles growth** — if config gains complex fields (watched namespaces, retry policies), YAML handles it naturally
 - **Internal tool** — no public users who need `--help` discoverability
@@ -417,7 +417,7 @@ spec:
 | Package | What | Framework | Build tag | External deps | Run command |
 |---------|------|-----------|-----------|--------------|-------------|
 | `tests/unit/` | Business logic, drift detection, normalization, client helpers | Standard `go test` | None | None | `go test ./tests/unit/...` |
-| `tests/integration/` | Full reconciliation loop (K8s + real Zitadel) | `kubernetes-sigs/e2e-framework` + Kind | `//go:build integration` | Docker, `~/.zitadel/config.yaml` | `go test -tags=integration ./tests/integration/...` |
+| `tests/integration/` | Full reconciliation loop (K8s + real Zitadel) | `kubernetes-sigs/e2e-framework` + Kind | `//go:build integration` | Docker, `~/.config/zitadel-operator/config.yaml` | `go test -tags=integration ./tests/integration/...` |
 
 ### Unit Tests (`tests/unit/`)
 
@@ -507,20 +507,20 @@ func TestOIDCAppLifecycle(t *testing.T) {
 
 ### Test Configuration
 
-Tests read connection config from `~/.zitadel/config.yaml` — same shape as operator config. No instance-specific data in the repo.
+Tests read connection config from `~/.config/zitadel-operator/config.yaml` — same shape as operator config. No instance-specific data in the repo.
 
 ```yaml
-# ~/.zitadel/config.yaml
+# ~/.config/zitadel-operator/config.yaml
 domain: <your-test-instance>.eu1.zitadel.cloud
 port: "443"
-keyFile: ~/.zitadel/key.json
+keyFile: keyring (go-keyring)
 # Tests create their own orgs per run and clean up
 ```
 
 The repo contains only a README explaining setup:
 
 ```
-tests/integration/README.md  — how to configure ~/.zitadel/config.yaml
+tests/integration/README.md  — how to configure ~/.config/zitadel-operator/config.yaml
 tests/integration/testutil/  — config loader, cleanup helpers, name generators
 ```
 
@@ -610,7 +610,7 @@ v1alpha2 is a breaking redesign. A conversion webhook adds complexity for margin
 Priority: get into integration-test-driven development (Kind + real Zitadel) on day 1. Every subsequent change gets validated immediately.
 
 ### Step 0: Test Harness (enables REPL development)
-- [ ] `~/.zitadel/config.yaml` loader (domain + keyFile)
+- [ ] `~/.config/zitadel-operator/config.yaml` loader (domain + keyFile)
 - [ ] `TestMain` with e2e-framework — Kind cluster up/down
 - [ ] CRD install into Kind (existing v1alpha1 CRDs)
 - [ ] One trivial test: apply Project CR → operator creates project in real Zitadel → status.ready = true
@@ -736,7 +736,7 @@ All repos follow the same development tooling pattern (based on the existing zit
 
 **Testing:**
 - Unit tests: `go test ./...` (standard, no build tag, runs in CI)
-- Integration tests: `go test -tags=integration ./tests/integration/...` (local only, requires Kind + `~/.zitadel/config.yaml`)
+- Integration tests: `go test -tags=integration ./tests/integration/...` (local only, requires Kind + `~/.config/zitadel-operator/config.yaml`)
 - Integration tests are NOT in CI — they need real Zitadel + Docker for Kind
 
 **Directory structure:**
@@ -801,7 +801,7 @@ This lets users copy the Pulumi example and customize for their environment. Not
 - attaches binaries + ZIPs to GitHub Release
 ```
 
-**Integration tests (Kind + real Zitadel) run locally only** — they require `~/.zitadel/config.yaml` with credentials and Docker for Kind. Not in CI.
+**Integration tests (Kind + real Zitadel) run locally only** — they require `~/.config/zitadel-operator/config.yaml` with credentials and Docker for Kind. Not in CI.
 
 ### Repository creation tasks
 
@@ -819,3 +819,61 @@ This lets users copy the Pulumi example and customize for their environment. Not
 1. ~~Should we support `organizationRef` in addition to `organizationId`?~~ → **Yes, Option C (either/or).**
 2. Should the operator auto-discover the default org from the service account's org membership if `defaultOrganizationId` is omitted from config?
 3. For integration tests: should the operator run as a pod inside Kind (more realistic) or as a local process with Kind's kubeconfig (faster iteration)? Likely both — local process for dev, pod for CI.
+
+
+---
+
+## Test Credentials Setup
+
+All integration tests use XDG config paths + system keyring (via [go-keyring](https://github.com/zalando/go-keyring)) for secrets.
+
+### Config files (non-secret, per-service)
+
+```
+~/.config/zitadel-operator/config.yaml
+~/.config/zitadel-rbac-mapper/config.yaml
+~/.config/google-group-sync/config.yaml
+~/.config/zitadel-notify-relay/config.yaml
+```
+
+### Secrets in system keyring
+
+Secrets are stored in the platform keyring (GNOME Keyring on Linux, macOS Keychain on macOS) via `go-keyring`:
+
+| Service | Keyring key | Value |
+|---------|-------------|-------|
+| `zitadel-operator` | `jwt-key` | Zitadel test instance JWT key JSON |
+| `zitadel-rbac-mapper` | `jwt-key` | Same Zitadel JWT key (shared instance) |
+| `google-group-sync` | `sa-key` | Google Workspace service account key JSON |
+
+### Storing secrets (one-time setup)
+
+Each repo includes a `cmd/testsetup/` helper that wraps go-keyring:
+
+```bash
+# Store Zitadel test instance JWT key
+go run ./cmd/testsetup store zitadel-operator jwt-key < /path/to/zitadel-key.json
+
+# Store Google SA key
+go run ./cmd/testsetup store google-group-sync sa-key < /path/to/google-sa.json
+
+# Store Zitadel key for rbac-mapper
+go run ./cmd/testsetup store zitadel-rbac-mapper jwt-key < /path/to/zitadel-key.json
+```
+
+### LocalStack for notify-relay
+
+zitadel-notify-relay uses LocalStack (free, Docker) — no real AWS credentials needed:
+
+```bash
+docker run -d --name localstack -p 4566:4566 localstack/localstack
+```
+
+### Ecosystem coordination
+
+The zitadel-operator repo is the **master plan** for the ecosystem:
+- `docs/DESIGN.md` — architecture + ecosystem overview
+- `docs/TEST-SCENARIOS.md` — E2E scenarios (references ecosystem repos at integration points)
+- `ROADMAP.md` — phased implementation including ecosystem repo milestones
+
+Each ecosystem repo has independent `README.md` + `docs/PLAN.md`. The operator's Step 4b (INF-369) is the integration point where all repos are tested together.
