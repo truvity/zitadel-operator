@@ -872,8 +872,233 @@ docker run -d --name localstack -p 4566:4566 localstack/localstack
 ### Ecosystem coordination
 
 The zitadel-operator repo is the **master plan** for the ecosystem:
-- `docs/DESIGN.md` — architecture + ecosystem overview
+- `docs/DESIGN.md` — architecture + ecosystem overview + implementation patterns bible
 - `docs/TEST-SCENARIOS.md` — E2E scenarios (references ecosystem repos at integration points)
 - `ROADMAP.md` — phased implementation including ecosystem repo milestones
 
 Each ecosystem repo has independent `README.md` + `docs/PLAN.md`. The operator's Step 4b (INF-369) is the integration point where all repos are tested together.
+
+---
+
+## Ecosystem Implementation Patterns
+
+Canonical reference for implementation patterns shared across all ecosystem repositories (google-group-sync, zitadel-rbac-mapper, zitadel-notify-relay). Patterns were established in google-group-sync (reference implementation) and adopted by all other repos.
+
+### Architecture
+
+- **Bare Go main** (no CLI framework needed for daemons) — `signal.NotifyContext` + `app.Run(ctx)`
+- `pkg/app/` wires all components (config → logger → dependencies → server)
+- **Env-only config** — no YAML files for service configuration, no `--config` flag
+- `slog` for structured logging + `samber/slog-fiber` for HTTP request logging
+- `fiber/v3` HTTP framework
+- **No auth in binary** — delegated to platform:
+  - AWS Lambda: Function URL with `AWS_IAM` auth type
+  - Kubernetes: NetworkPolicy restricts access to authorized caller pods
+
+### Binary Entry Point Pattern
+
+```go
+func main() {
+    // --help, --version flags (no CLI framework)
+    if len(os.Args) > 1 {
+        switch os.Args[1] {
+        case "--version", "-v": fmt.Printf("%s %s\n", name, Version); return
+        case "--help", "-h": printHelp(); return
+        }
+    }
+
+    ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+    defer cancel()
+
+    if err := app.Run(ctx); err != nil {
+        cancel()
+        fmt.Fprintf(os.Stderr, "error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+### Build & Release
+
+- Binary named `bootstrap` for Lambda (no wrapper script needed — binary IS the bootstrap)
+- GoReleaser config:
+  - `binary: bootstrap` — single build ID per repo
+  - Changelog with conventional commit groups (feat, fix, other)
+  - `version: 2` format
+- Archives: just ZIP with the bootstrap binary (no extra files)
+- `ko` for multi-arch container images (linux/amd64 + linux/arm64)
+  - `bare: true`, `base_import_paths: true`
+  - Base image: `gcr.io/distroless/static:nonroot`
+- Helm chart version from git tag at package time:
+  - `Chart.yaml` has `0.0.0-dev` placeholder
+  - CI sets `--version "$VERSION" --app-version "$VERSION"` during `helm package`
+- Lambda ZIP downloaded directly via `pulumi.NewRemoteArchive(githubReleaseURL)` — no S3 upload needed
+
+### CI/CD
+
+- **DeterminateSystems/nix-installer-action** + **jetify-com/devbox-install-action** (skip-nix-installation: true)
+- CI: `devbox run -- just check` (build + test + lint + govulncheck)
+- Release: `devbox run -- goreleaser release --clean` + helm package/push
+- `govulncheck` in CI (pin Go version to latest patch to avoid stdlib vulns)
+- GitHub Actions triggers:
+  - CI: `on: pull_request` + `on: push: branches: [master]`
+  - Release: `on: push: tags: ["v*"]`
+
+### Justfile
+
+Standard development commands shared by all repos:
+
+```just
+build:
+    go build -o bin/bootstrap ./cmd/<service>/
+
+test:
+    go test ./... -coverprofile=coverage.out
+
+lint:
+    golangci-lint run ./...
+
+vuln:
+    govulncheck ./...
+
+tidy:
+    go mod tidy
+
+clean:
+    rm -rf bin/ dist/ coverage.out
+
+check: build test lint vuln
+
+snapshot:
+    goreleaser release --snapshot --clean
+
+helm-package:
+    helm package charts/<service> --destination dist/
+```
+
+### Testing
+
+#### Unit tests (CI)
+- Standard `go test ./...` — no build tags
+- Mock interfaces for external dependencies (resolvers, providers, API clients)
+- Table-driven tests for config parsing, rule evaluation, payload handling
+
+#### Integration tests (local only)
+- Build tag: `//go:build integration`
+- Run: `go test -tags=integration ./tests/integration/...`
+- **Keyring for secrets:** `zalando/go-keyring` for platform-agnostic secret storage
+  - Linux: GNOME Keyring (via `secret-tool` CLI: `service=<name>, username=<key>`)
+  - macOS: Keychain
+- **XDG config path:** `~/.config/<service>/config.yaml` for test configuration
+- Each repo includes `cmd/testsetup/main.go` helper:
+  ```bash
+  go run ./cmd/testsetup store < /path/to/secret.json
+  ```
+- Integration tests are **NOT in CI** — they require real external services
+
+#### LocalStack (for AWS-dependent repos)
+- `zitadel-notify-relay` uses LocalStack (Docker, free) for SES + SNS
+- No keyring needed — LocalStack requires no real AWS credentials
+- Setup: `docker run -d --name localstack -p 4566:4566 localstack/localstack`
+
+### Lambda Deployment (Pulumi)
+
+Standard Pulumi pattern for all ecosystem Lambda deployments:
+
+```go
+// Download ZIP directly from GitHub Release — no S3 intermediary
+zipURL := "https://github.com/truvity/<repo>/releases/download/v" + version + "/<repo>_" + version + "_linux_arm64.zip"
+
+fn, err := lambda.NewFunction(ctx, "<service>", &lambda.FunctionArgs{
+    Runtime:       pulumi.String("provided.al2023"),
+    Architectures: pulumi.StringArray{pulumi.String("arm64")},
+    Handler:       pulumi.String("bootstrap"),
+    Code:          pulumi.NewRemoteArchive(zipURL),
+    Layers:        pulumi.StringArray{pulumi.String(lwaLayerARN)},
+    Environment: &lambda.FunctionEnvironmentArgs{
+        Variables: pulumi.StringMap{
+            "PORT":                         pulumi.String("8080"),
+            "HEALTH_PORT":                  pulumi.String("7070"),
+            "AWS_LWA_READINESS_CHECK_PATH": pulumi.String("/health"),
+            "AWS_LWA_READINESS_CHECK_PORT": pulumi.String("7070"),
+            "AWS_LAMBDA_EXEC_WRAPPER":      pulumi.String("/opt/bootstrap"),
+            "AWS_LWA_ASYNC_INIT":           pulumi.String("true"),
+            // ... service-specific env vars
+        },
+    },
+})
+
+// Function URL with AWS_IAM auth
+fnURL, err := lambda.NewFunctionUrl(ctx, "<service>-url", &lambda.FunctionUrlArgs{
+    FunctionName:      fn.Name,
+    AuthorizationType: pulumi.String("AWS_IAM"),
+})
+```
+
+Key values:
+- **LWA layer ARN (arm64, eu-central-1):** `arn:aws:lambda:eu-central-1:753240598075:layer:LambdaAdapterLayerArm64:25`
+- **Handler:** `bootstrap`
+- **Runtime:** `provided.al2023`
+- **Secrets as env vars:** use `pulumi.ToSecret()` or `config.RequireSecret()`
+- **Function URL with `AWS_IAM` auth** (callers must have `lambda:InvokeFunctionUrl` permission)
+
+### HTTP Server Pattern
+
+All repos use fiber/v3 with the same server structure:
+
+```go
+func Run(ctx context.Context, logger *slog.Logger, cfg Config, deps ...interface{}) error {
+    app := fiber.New(fiber.Config{...})
+    
+    // Request logging middleware
+    app.Use(slogfiber.New(logger))
+    
+    // Health endpoint (separate port for LWA readiness)
+    // Main routes on PORT, health on HEALTH_PORT
+    
+    // Graceful shutdown on context cancellation
+    go func() {
+        <-ctx.Done()
+        _ = app.ShutdownWithTimeout(5 * time.Second)
+    }()
+    
+    return app.Listen(fmt.Sprintf(":%d", cfg.Port))
+}
+```
+
+### Error Handling (RFC 9457)
+
+All repos return `application/problem+json` for errors:
+
+```go
+type ProblemDetail struct {
+    Type   string `json:"type"`
+    Title  string `json:"title"`
+    Status int    `json:"status"`
+    Detail string `json:"detail"`
+}
+```
+
+### Directory Structure (canonical)
+
+```
+<repo>/
+├── cmd/<binary>/main.go         # Bare Go main (--help/--version, signal.NotifyContext)
+├── cmd/testsetup/main.go        # Keyring secret storage helper
+├── pkg/app/app.go               # Component wiring
+├── pkg/config/config.go         # Env var loader + validation
+├── pkg/server/                   # fiber/v3 HTTP server + handlers
+├── tests/integration/            # //go:build integration
+├── charts/<name>/                # Helm chart (0.0.0-dev placeholder version)
+├── deploy/example/main.go       # Pulumi Lambda deployment example
+├── .goreleaser.yaml             # binary: bootstrap, ko, ZIP
+├── .github/workflows/ci.yaml    # devbox + DeterminateNix + just check
+├── .github/workflows/release.yaml
+├── Justfile                      # build, test, lint, vuln, check, snapshot
+├── devbox.json                   # Go, golangci-lint, goreleaser, govulncheck, just, ko, helm
+├── .envrc                        # eval "$(devbox generate direnv --print-envrc)"
+├── .golangci.yml                 # errcheck, govet, staticcheck, unused, gocritic, gosec
+├── go.mod
+├── LICENSE (MIT)
+└── README.md
+```
