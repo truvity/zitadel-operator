@@ -1,26 +1,22 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
-
-permissions:
-  contents: read
+  push:
+    branches: [master]
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: jetify-com/devbox-install-action@v0.15.0
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: jetify-com/devbox-install-action@v0.14.0
         with:
           enable-cache: true
+          skip-nix-installation: true
 
-      - name: Run all checks
-        run: devbox run just check
-
-      - name: Verify generated files are committed
-        run: devbox run just verify-generate
+      - run: devbox run -- just check
