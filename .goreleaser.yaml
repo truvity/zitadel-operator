@@ -16,6 +16,13 @@ builds:
     ldflags:
       - -s -w -X main.Version={{.Version}}
 
+archives:
+  - id: binary
+    ids:
+      - zitadel-operator
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
 kos:
   - id: zitadel-operator
     build: zitadel-operator

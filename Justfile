@@ -36,6 +36,10 @@ verify-generate: generate
 tidy:
     go mod tidy
 
+# Run go mod tidy
+tidy:
+    go mod tidy
+
 # Clean build artifacts
 clean:
     rm -rf bin/ dist/ coverage.out
