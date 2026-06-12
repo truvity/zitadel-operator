@@ -147,3 +147,54 @@ func TestProject_WithExplicitOrgId(t *testing.T) {
 	waitForDeletion(t, ctx, client.ObjectKeyFromObject(proj), &zitadelv1alpha2.Project{}, 30*time.Second)
 	t.Log("project with explicit orgId lifecycle complete")
 }
+
+func TestProject_RolesSync(t *testing.T) {
+	ctx := context.Background()
+	name := fmt.Sprintf("roleproj-%d", time.Now().UnixMilli())
+
+	// Create Project with roles.
+	proj := &zitadelv1alpha2.Project{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: zitadelv1alpha2.ProjectSpec{
+			Roles: []string{"viewer", "admin", "editor"},
+		},
+	}
+	if err := k8sClient.Create(ctx, proj); err != nil {
+		t.Fatalf("creating Project: %v", err)
+	}
+
+	var reconciledProj zitadelv1alpha2.Project
+	waitForReady(t, ctx, client.ObjectKeyFromObject(proj), &reconciledProj, 30*time.Second)
+	t.Logf("project with roles ready: %s (id: %s)", name, reconciledProj.Status.ProjectId)
+
+	// Wait a bit for role sync to complete (happens after ensureProject).
+	time.Sleep(2 * time.Second)
+
+	// Update: remove "editor", add "operator".
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(proj), proj); err != nil {
+		t.Fatalf("getting project: %v", err)
+	}
+	proj.Spec.Roles = []string{"viewer", "admin", "operator"}
+	if err := k8sClient.Update(ctx, proj); err != nil {
+		t.Fatalf("updating Project roles: %v", err)
+	}
+
+	// Wait for reconciliation.
+	time.Sleep(3 * time.Second)
+
+	// Verify still ready.
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(proj), &reconciledProj); err != nil {
+		t.Fatalf("getting project after role update: %v", err)
+	}
+	if !reconciledProj.Status.Ready {
+		t.Fatal("expected ready=true after role update")
+	}
+	t.Log("project role sync test passed")
+
+	// Cleanup.
+	_ = k8sClient.Delete(ctx, proj)
+	waitForDeletion(t, ctx, client.ObjectKeyFromObject(proj), &zitadelv1alpha2.Project{}, 30*time.Second)
+}

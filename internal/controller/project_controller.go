@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -17,6 +18,8 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	filterv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object"
 	projectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
 )
 
@@ -78,6 +81,13 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	projectID, err := r.ensureProject(ctx, &cr, orgID)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// Sync project roles if specified.
+	if len(cr.Spec.Roles) > 0 {
+		if err := r.syncRoles(ctx, projectID, orgID, cr.Spec.Roles); err != nil {
+			return ctrl.Result{}, fmt.Errorf("syncing roles: %w", err)
+		}
 	}
 
 	// Update status only if changed.
@@ -164,4 +174,61 @@ func (r *ProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("project").
 		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
+}
+
+// syncRoles ensures the project has exactly the specified roles.
+// It adds missing roles and removes extra ones.
+func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID string, desiredRoles []string) error {
+	// Set org context for Management API calls.
+	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
+
+	// List existing roles.
+	listResp, err := r.Zitadel.Management().ListProjectRoles(ctx, &management.ListProjectRolesRequest{ //nolint:staticcheck // no v2 equivalent
+		ProjectId: projectID,
+		Query:     &object.ListQuery{Limit: 100},
+	})
+	if err != nil {
+		return fmt.Errorf("listing project roles: %w", err)
+	}
+
+	// Build set of existing role keys.
+	existing := make(map[string]bool, len(listResp.GetResult()))
+	for _, role := range listResp.GetResult() {
+		existing[role.GetKey()] = true
+	}
+
+	// Build set of desired role keys.
+	desired := make(map[string]bool, len(desiredRoles))
+	for _, role := range desiredRoles {
+		desired[role] = true
+	}
+
+	// Add missing roles.
+	for _, role := range desiredRoles {
+		if !existing[role] {
+			_, err := r.Zitadel.Management().AddProjectRole(ctx, &management.AddProjectRoleRequest{ //nolint:staticcheck // no v2 equivalent
+				ProjectId:   projectID,
+				RoleKey:     role,
+				DisplayName: role,
+			})
+			if err != nil {
+				return fmt.Errorf("adding role %q: %w", role, err)
+			}
+		}
+	}
+
+	// Remove extra roles.
+	for roleKey := range existing {
+		if !desired[roleKey] {
+			_, err := r.Zitadel.Management().RemoveProjectRole(ctx, &management.RemoveProjectRoleRequest{ //nolint:staticcheck // no v2 equivalent
+				ProjectId: projectID,
+				RoleKey:   roleKey,
+			})
+			if err != nil {
+				return fmt.Errorf("removing role %q: %w", roleKey, err)
+			}
+		}
+	}
+
+	return nil
 }
