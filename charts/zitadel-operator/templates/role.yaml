@@ -12,10 +12,13 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
+      - actionexecutions
+      - actiontargets
       - machineusers
       - oidcapps
       - organizations
       - projects
+      - usergrants
     verbs:
       - get
       - list
@@ -27,10 +30,13 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
+      - actionexecutions/status
+      - actiontargets/status
       - machineusers/status
       - oidcapps/status
       - organizations/status
       - projects/status
+      - usergrants/status
     verbs:
       - get
       - update
@@ -38,10 +44,13 @@ rules:
   - apiGroups:
       - zitadel.truvity.io
     resources:
+      - actionexecutions/finalizers
+      - actiontargets/finalizers
       - machineusers/finalizers
       - oidcapps/finalizers
       - organizations/finalizers
       - projects/finalizers
+      - usergrants/finalizers
     verbs:
       - update
   - apiGroups:
