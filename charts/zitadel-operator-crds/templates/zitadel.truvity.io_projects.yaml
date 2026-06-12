@@ -12,13 +12,16 @@ spec:
     listKind: ProjectList
     plural: projects
     singular: project
-  scope: Cluster
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .status.projectId
+      name: ProjectID
+      type: string
     - jsonPath: .status.ready
       name: Ready
       type: boolean
-    name: v1alpha1
+    name: v1alpha2
     schema:
       openAPIV3Schema:
         description: Project is the Schema for the projects API.
@@ -52,13 +55,33 @@ spec:
                   CheckAuthorizationOnAuth enables authorization check on authentication.
                   When true, only users with explicit role assignments can authenticate,
                   and user grants are loaded into the Action context (ctx.v1.user.grants).
-                  Required for the groups claim Action to work.
                 type: boolean
+              name:
+                description: |-
+                  Name is the display name of the project in Zitadel.
+                  If empty, the Kubernetes resource name is used.
+                type: string
               organizationId:
                 description: |-
-                  OrganizationId is the Zitadel organization ID this project belongs to.
-                  If empty, the default organization of the instance is used.
+                  OrganizationId references a pre-existing Zitadel organization by raw ID.
+                  Mutually exclusive with OrganizationRef.
                 type: string
+              organizationRef:
+                description: |-
+                  OrganizationRef references an Organization CR managed by this operator.
+                  Mutually exclusive with OrganizationId.
+                properties:
+                  name:
+                    description: Name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the referenced resource.
+                      If empty, defaults to the same namespace as the referencing resource.
+                    type: string
+                required:
+                - name
+                type: object
               roles:
                 description: Roles is the list of roles defined for this project.
                 items:
@@ -130,6 +153,10 @@ spec:
                 description: LastSyncTime is the last time the resource was synced
                   with Zitadel.
                 format: date-time
+                type: string
+              organizationId:
+                description: OrganizationId is the resolved organization ID this project
+                  belongs to.
                 type: string
               projectId:
                 description: ProjectId is the Zitadel project ID.

@@ -12,6 +12,8 @@ spec:
       {{- include "zitadel-operator.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         {{- include "zitadel-operator.selectorLabels" . | nindent 8 }}
     spec:
@@ -25,21 +27,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
-            - --zitadel-domain={{ .Values.zitadel.domain }}
-            - --zitadel-port={{ .Values.zitadel.port }}
-            - --zitadel-insecure={{ .Values.zitadel.insecure }}
-            {{- if .Values.zitadel.externalDomain }}
-            - --external-domain={{ .Values.zitadel.externalDomain }}
-            {{- end }}
-            - --jwt-secret-name={{ .Values.zitadel.jwtSecretName }}
-            - --jwt-secret-namespace={{ .Values.zitadel.jwtSecretNamespace }}
-            {{- if .Values.zitadel.jwtSecretKey }}
-            - --jwt-secret-key={{ .Values.zitadel.jwtSecretKey }}
-            {{- end }}
-            - --mode={{ .Values.zitadel.mode }}
-            {{- if .Values.zitadel.project }}
-            - --project={{ .Values.zitadel.project }}
-            {{- end }}
+            - --config=/etc/zitadel-operator/config.yaml
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect=true
             {{- end }}
@@ -70,6 +58,20 @@ spec:
               drop:
                 - ALL
             readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/zitadel-operator
+              readOnly: true
+            - name: credentials
+              mountPath: {{ .Values.credentials.mountPath }}
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "zitadel-operator.fullname" . }}-config
+        - name: credentials
+          secret:
+            secretName: {{ .Values.credentials.secretName }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

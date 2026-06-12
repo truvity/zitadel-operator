@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	zitadelv1alpha1 "github.com/truvity/zitadel-operator/api/v1alpha1"
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	objectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
@@ -32,17 +32,16 @@ type OrganizationReconciler struct {
 func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// Fetch the Organization CR.
-	var cr zitadelv1alpha1.Organization
+	var cr zitadelv1alpha2.Organization
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		if cr.Status.OrgId != "" {
+		if cr.Status.OrganizationId != "" {
 			_, err := r.Zitadel.Organization().DeleteOrganization(ctx, &orgv2.DeleteOrganizationRequest{
-				OrganizationId: cr.Status.OrgId,
+				OrganizationId: cr.Status.OrganizationId,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
 				return ctrl.Result{}, fmt.Errorf("deleting organization: %w", err)
@@ -63,34 +62,38 @@ func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// Create or get org by name.
+	// Ensure organization exists.
 	orgID, err := r.ensureOrganization(ctx, &cr)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	now := metav1.NewTime(time.Now())
-	cr.Status.OrgId = orgID
-	cr.Status.Ready = true
-	cr.Status.LastSyncTime = &now
-	if err := r.Status().Update(ctx, &cr); err != nil {
-		return ctrl.Result{}, err
+	// Update status only if changed.
+	if cr.Status.OrganizationId != orgID || !cr.Status.Ready {
+		now := metav1.NewTime(time.Now())
+		cr.Status.OrganizationId = orgID
+		cr.Status.Ready = true
+		cr.Status.LastSyncTime = &now
+		if err := r.Status().Update(ctx, &cr); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	logger.Info("organization reconciled", "orgId", orgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
-func (r *OrganizationReconciler) ensureOrganization(ctx context.Context, cr *zitadelv1alpha1.Organization) (string, error) {
+func (r *OrganizationReconciler) ensureOrganization(ctx context.Context, cr *zitadelv1alpha2.Organization) (string, error) {
+	displayName := cr.DisplayName()
+
 	// If we already have an org ID, verify it still exists.
-	if cr.Status.OrgId != "" {
+	if cr.Status.OrganizationId != "" {
 		listResp, err := r.Zitadel.Organization().ListOrganizations(ctx, &orgv2.ListOrganizationsRequest{
 			Queries: []*orgv2.SearchQuery{
 				{
 					Query: &orgv2.SearchQuery_NameQuery{
 						NameQuery: &orgv2.OrganizationNameQuery{
-							Name:   cr.Spec.DisplayName,
+							Name:   displayName,
 							Method: objectv2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS,
 						},
 					},
@@ -99,12 +102,11 @@ func (r *OrganizationReconciler) ensureOrganization(ctx context.Context, cr *zit
 		})
 		if err == nil {
 			for _, org := range listResp.GetResult() {
-				if org.GetId() == cr.Status.OrgId {
-					return cr.Status.OrgId, nil
+				if org.GetId() == cr.Status.OrganizationId {
+					return cr.Status.OrganizationId, nil
 				}
 			}
 		}
-		// Org was deleted externally or not found, recreate.
 	}
 
 	// Search by name.
@@ -113,7 +115,7 @@ func (r *OrganizationReconciler) ensureOrganization(ctx context.Context, cr *zit
 			{
 				Query: &orgv2.SearchQuery_NameQuery{
 					NameQuery: &orgv2.OrganizationNameQuery{
-						Name:   cr.Spec.DisplayName,
+						Name:   displayName,
 						Method: objectv2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS,
 					},
 				},
@@ -125,14 +127,14 @@ func (r *OrganizationReconciler) ensureOrganization(ctx context.Context, cr *zit
 	}
 
 	for _, org := range listResp.GetResult() {
-		if org.GetName() == cr.Spec.DisplayName {
+		if org.GetName() == displayName {
 			return org.GetId(), nil
 		}
 	}
 
 	// Create new organization.
 	createResp, err := r.Zitadel.Organization().AddOrganization(ctx, &orgv2.AddOrganizationRequest{
-		Name: cr.Spec.DisplayName,
+		Name: displayName,
 	})
 	if err != nil {
 		return "", fmt.Errorf("creating organization: %w", err)
@@ -144,9 +146,8 @@ func (r *OrganizationReconciler) ensureOrganization(ctx context.Context, cr *zit
 // SetupWithManager sets up the controller with the Manager.
 func (r *OrganizationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&zitadelv1alpha1.Organization{}).
+		For(&zitadelv1alpha2.Organization{}).
 		Named("organization").
-		WithEventFilter(generationChangedPredicate()).
 		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

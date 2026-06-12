@@ -4,30 +4,24 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: oidcapps.zitadel.truvity.io
+  name: actionexecutions.zitadel.truvity.io
 spec:
   group: zitadel.truvity.io
   names:
-    kind: OIDCApp
-    listKind: OIDCAppList
-    plural: oidcapps
-    singular: oidcapp
+    kind: ActionExecution
+    listKind: ActionExecutionList
+    plural: actionexecutions
+    singular: actionexecution
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.clientId
-      name: ClientID
-      type: string
-    - jsonPath: .status.projectId
-      name: Project
-      type: string
     - jsonPath: .status.ready
       name: Ready
       type: boolean
     name: v1alpha2
     schema:
       openAPIV3Schema:
-        description: OIDCApp is the Schema for the oidcapps API.
+        description: ActionExecution is the Schema for the actionexecutions API.
         properties:
           apiVersion:
             description: |-
@@ -47,118 +41,63 @@ spec:
           metadata:
             type: object
           spec:
-            description: OIDCAppSpec defines the desired state of OIDCApp.
+            description: ActionExecutionSpec defines the desired state of ActionExecution.
             properties:
-              accessTokenRoleAssertion:
-                description: AccessTokenRoleAssertion determines whether roles are
-                  included in the access token.
-                type: boolean
-              accessTokenType:
-                description: AccessTokenType specifies the access token format.
-                enum:
-                - bearer
-                - jwt
-                type: string
-              authMethod:
-                description: AuthMethod is the authentication method.
-                enum:
-                - basic
-                - none
-                type: string
-              idTokenRoleAssertion:
-                description: IdTokenRoleAssertion determines whether roles are included
-                  in the ID token.
-                type: boolean
-              name:
-                description: |-
-                  Name is the display name of the application in Zitadel.
-                  If empty, the Kubernetes resource name is used.
-                type: string
-              postLogoutRedirectUris:
-                description: PostLogoutRedirectUris is the list of allowed post-logout
-                  redirect URIs.
-                items:
-                  type: string
-                type: array
-              projectId:
-                description: |-
-                  ProjectId references a pre-existing Zitadel project by raw ID.
-                  Mutually exclusive with ProjectRef.
-                type: string
-              projectRef:
-                description: |-
-                  ProjectRef references a Project CR managed by this operator.
-                  Mutually exclusive with ProjectId.
+              condition:
+                description: Condition defines when the execution triggers.
                 properties:
-                  name:
-                    description: Name is the name of the referenced resource.
-                    type: string
-                  namespace:
+                  event:
                     description: |-
-                      Namespace is the namespace of the referenced resource.
-                      If empty, defaults to the same namespace as the referencing resource.
+                      Event is a Zitadel event condition (e.g., "user.human.added").
+                      Mutually exclusive with Function and Request.
                     type: string
-                required:
-                - name
+                  function:
+                    description: |-
+                      Function is a Zitadel function condition (e.g., "/zitadel.session.v2.SessionService/SetSession").
+                      Mutually exclusive with Request and Event.
+                    type: string
+                  request:
+                    description: |-
+                      Request is a Zitadel request condition (e.g., "/zitadel.user.v2.UserService/AddHumanUser").
+                      Mutually exclusive with Function and Event.
+                    type: string
                 type: object
-              redirectUris:
-                description: RedirectUris is the list of allowed redirect URIs.
+              targets:
+                description: Targets is the list of target references to invoke.
                 items:
-                  type: string
-                type: array
-              secretRef:
-                description: SecretRef references the Secret where the client credentials
-                  will be stored.
-                properties:
-                  extraData:
-                    additionalProperties:
+                  description: ActionExecutionTarget references a target to invoke
+                    in the execution.
+                  properties:
+                    targetId:
+                      description: |-
+                        TargetId references a pre-existing Zitadel target by raw ID.
+                        Mutually exclusive with TargetRef.
                       type: string
-                    description: ExtraData adds static key-value pairs to the generated
-                      secret.
-                    type: object
-                  keys:
-                    description: |-
-                      Keys customizes the secret key names for clientId and clientSecret.
-                      Defaults: clientId → "client_id", clientSecret → "client_secret"
-                    properties:
-                      clientId:
-                        description: |-
-                          ClientId is the key name for the client ID in the generated secret.
-                          Default: "client_id"
-                        type: string
-                      clientSecret:
-                        description: |-
-                          ClientSecret is the key name for the client secret in the generated secret.
-                          Default: "client_secret"
-                        type: string
-                    type: object
-                  name:
-                    description: Name is the name of the Secret.
-                    type: string
-                required:
-                - name
-                type: object
-              type:
-                description: Type is the OIDC application type.
-                enum:
-                - confidential
-                - public
-                type: string
+                    targetRef:
+                      description: |-
+                        TargetRef references an ActionTarget CR managed by this operator.
+                        Mutually exclusive with TargetId.
+                      properties:
+                        name:
+                          description: Name is the name of the referenced resource.
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace is the namespace of the referenced resource.
+                            If empty, defaults to the same namespace as the referencing resource.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                  type: object
+                type: array
             required:
-            - authMethod
-            - redirectUris
-            - secretRef
-            - type
+            - condition
+            - targets
             type: object
           status:
-            description: OIDCAppStatus defines the observed state of OIDCApp.
+            description: ActionExecutionStatus defines the observed state of ActionExecution.
             properties:
-              applicationId:
-                description: ApplicationId is the Zitadel application ID.
-                type: string
-              clientId:
-                description: ClientId is the OIDC client ID assigned by Zitadel.
-                type: string
               conditions:
                 description: Conditions represent the latest available observations
                   of the resource's state.
@@ -222,16 +161,9 @@ spec:
                   with Zitadel.
                 format: date-time
                 type: string
-              organizationId:
-                description: OrganizationId is the resolved organization ID (inherited
-                  from project).
-                type: string
-              projectId:
-                description: ProjectId is the resolved project ID this app belongs
-                  to.
-                type: string
               ready:
-                description: Ready indicates whether the OIDCApp is successfully synced.
+                description: Ready indicates whether the ActionExecution is successfully
+                  synced.
                 type: boolean
             type: object
         type: object

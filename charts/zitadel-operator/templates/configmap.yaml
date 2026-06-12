@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zitadel-operator.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "zitadel-operator.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    domain: {{ .Values.config.domain | quote }}
+    port: {{ .Values.config.port | quote }}
+    insecure: {{ .Values.config.insecure }}
+    {{- if .Values.config.externalDomain }}
+    externalDomain: {{ .Values.config.externalDomain | quote }}
+    {{- end }}
+    keyFile: {{ .Values.credentials.mountPath }}/{{ .Values.credentials.key }}
+    {{- if .Values.config.defaultOrganizationId }}
+    defaultOrganizationId: {{ .Values.config.defaultOrganizationId | quote }}
+    {{- end }}
+    {{- if .Values.config.watchNamespaces }}
+    watchNamespaces:
+      {{- range .Values.config.watchNamespaces }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}

@@ -12,19 +12,16 @@ spec:
     listKind: UserGrantList
     plural: usergrants
     singular: usergrant
-  scope: Cluster
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.userEmail
-      name: Email
-      type: string
-    - jsonPath: .spec.projectRef
-      name: Project
+    - jsonPath: .status.grantId
+      name: GrantID
       type: string
     - jsonPath: .status.ready
       name: Ready
       type: boolean
-    name: v1alpha1
+    name: v1alpha2
     schema:
       openAPIV3Schema:
         description: UserGrant is the Schema for the usergrants API.
@@ -49,23 +46,74 @@ spec:
           spec:
             description: UserGrantSpec defines the desired state of UserGrant.
             properties:
-              projectRef:
-                description: ProjectRef is the name of the Zitadel Project CR this
-                  grant belongs to.
+              organizationId:
+                description: |-
+                  OrganizationId references a pre-existing Zitadel organization by raw ID.
+                  Mutually exclusive with OrganizationRef.
                 type: string
+              organizationRef:
+                description: |-
+                  OrganizationRef references an Organization CR managed by this operator.
+                  Mutually exclusive with OrganizationId.
+                properties:
+                  name:
+                    description: Name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the referenced resource.
+                      If empty, defaults to the same namespace as the referencing resource.
+                    type: string
+                required:
+                - name
+                type: object
+              projectId:
+                description: |-
+                  ProjectId references a pre-existing Zitadel project by raw ID.
+                  Mutually exclusive with ProjectRef.
+                type: string
+              projectRef:
+                description: |-
+                  ProjectRef references a Project CR managed by this operator.
+                  Mutually exclusive with ProjectId.
+                properties:
+                  name:
+                    description: Name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the referenced resource.
+                      If empty, defaults to the same namespace as the referencing resource.
+                    type: string
+                required:
+                - name
+                type: object
               roleKeys:
-                description: RoleKeys is the list of role keys granted to the user.
+                description: RoleKeys is the list of role keys to grant.
                 items:
                   type: string
                 type: array
-              userEmail:
-                description: UserEmail is the email of the Zitadel user to grant roles
-                  to.
+              userId:
+                description: UserID is the Zitadel user ID to grant roles to.
                 type: string
+              userRef:
+                description: |-
+                  UserRef references a MachineUser CR managed by this operator.
+                  Mutually exclusive with UserID.
+                properties:
+                  name:
+                    description: Name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the referenced resource.
+                      If empty, defaults to the same namespace as the referencing resource.
+                    type: string
+                required:
+                - name
+                type: object
             required:
-            - projectRef
             - roleKeys
-            - userEmail
             type: object
           status:
             description: UserGrantStatus defines the observed state of UserGrant.

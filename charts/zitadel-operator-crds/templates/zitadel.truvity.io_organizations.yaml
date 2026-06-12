@@ -12,16 +12,16 @@ spec:
     listKind: OrganizationList
     plural: organizations
     singular: organization
-  scope: Cluster
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.displayName
-      name: DisplayName
+    - jsonPath: .status.organizationId
+      name: OrgID
       type: string
     - jsonPath: .status.ready
       name: Ready
       type: boolean
-    name: v1alpha1
+    name: v1alpha2
     schema:
       openAPIV3Schema:
         description: Organization is the Schema for the organizations API.
@@ -46,14 +46,11 @@ spec:
           spec:
             description: OrganizationSpec defines the desired state of Organization.
             properties:
-              displayName:
-                description: DisplayName is the human-readable name of the organization.
+              name:
+                description: |-
+                  Name is the display name of the organization in Zitadel.
+                  If empty, the Kubernetes resource name is used.
                 type: string
-              domain:
-                description: Domain is the optional domain for the organization.
-                type: string
-            required:
-            - displayName
             type: object
           status:
             description: OrganizationStatus defines the observed state of Organization.
@@ -121,8 +118,8 @@ spec:
                   with Zitadel.
                 format: date-time
                 type: string
-              orgId:
-                description: OrgId is the Zitadel organization ID.
+              organizationId:
+                description: OrganizationId is the Zitadel organization ID.
                 type: string
               ready:
                 description: Ready indicates whether the Organization is successfully

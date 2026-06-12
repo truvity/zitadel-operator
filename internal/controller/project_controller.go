@@ -12,11 +12,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	zitadelv1alpha1 "github.com/truvity/zitadel-operator/api/v1alpha1"
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	filterv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	projectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
 )
 
@@ -24,6 +24,7 @@ import (
 type ProjectReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
+	Config  *config.Config
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projects,verbs=get;list;watch;create;update;patch;delete
@@ -33,10 +34,19 @@ type ProjectReconciler struct {
 func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// Fetch the Project CR.
-	var cr zitadelv1alpha1.Project
+	var cr zitadelv1alpha2.Project
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Resolve organization.
+	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	if err != nil {
+		if isRefNotReady(err) {
+			logger.Info("waiting for organization ref to become ready", "error", err)
+			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
 
 	// Handle deletion.
@@ -64,74 +74,52 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Create or get project by name.
-	projectID, err := r.ensureProject(ctx, &cr)
+	// Ensure project exists.
+	projectID, err := r.ensureProject(ctx, &cr, orgID)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Sync roles.
-	if err := r.syncRoles(ctx, projectID, cr.Spec.Roles); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Update status (only if values changed — avoids triggering unnecessary reconciles).
-	statusChanged := cr.Status.ProjectId != projectID || !cr.Status.Ready
-	if statusChanged {
-		cr.Status.ProjectId = projectID
-		cr.Status.Ready = true
+	// Update status only if changed.
+	if cr.Status.ProjectId != projectID || cr.Status.OrganizationId != orgID || !cr.Status.Ready {
 		now := metav1.NewTime(time.Now())
+		cr.Status.ProjectId = projectID
+		cr.Status.OrganizationId = orgID
+		cr.Status.Ready = true
 		cr.Status.LastSyncTime = &now
 		if err := r.Status().Update(ctx, &cr); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
-	logger.Info("project reconciled", "projectId", projectID)
+	logger.Info("project reconciled", "projectId", projectID, "orgId", orgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
-func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alpha1.Project) (string, error) {
+func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alpha2.Project, orgID string) (string, error) {
+	displayName := cr.DisplayName()
+
 	// If we already have a project ID, verify it still exists.
 	if cr.Status.ProjectId != "" {
-		_, err := r.Zitadel.Project().GetProject(ctx, &projectv2.GetProjectRequest{
-			ProjectId: cr.Status.ProjectId,
+		listResp, err := r.Zitadel.Project().ListProjects(ctx, &projectv2.ListProjectsRequest{
+			Filters: []*projectv2.ProjectSearchFilter{
+				{
+					Filter: &projectv2.ProjectSearchFilter_ProjectNameFilter{
+						ProjectNameFilter: &projectv2.ProjectNameFilter{
+							ProjectName: displayName,
+							Method:      filterv2.TextFilterMethod_TEXT_FILTER_METHOD_EQUALS,
+						},
+					},
+				},
+			},
 		})
 		if err == nil {
-			// Ensure project settings are up to date.
-			if cr.Spec.CheckAuthorizationOnAuth {
-				//nolint:staticcheck // Management v1 UpdateProject needed for ProjectRoleCheck (not in v2 API)
-				_, updateErr := r.Zitadel.Management().UpdateProject(ctx, &management.UpdateProjectRequest{
-					Id:                   cr.Status.ProjectId,
-					Name:                 cr.Name,
-					ProjectRoleAssertion: cr.Spec.AssertRolesOnAuth,
-					ProjectRoleCheck:     cr.Spec.CheckAuthorizationOnAuth,
-					HasProjectCheck:      cr.Spec.CheckAuthorizationOnAuth,
-				})
-				if updateErr != nil && status.Code(updateErr) != codes.FailedPrecondition {
-					return "", fmt.Errorf("updating project check settings: %w", updateErr)
+			for _, p := range listResp.GetProjects() {
+				if p.GetProjectId() == cr.Status.ProjectId {
+					return cr.Status.ProjectId, nil
 				}
 			}
-			return cr.Status.ProjectId, nil
 		}
-		if status.Code(err) != codes.NotFound {
-			return "", fmt.Errorf("getting project: %w", err)
-		}
-		// Project was deleted externally, recreate it.
-	}
-
-	// Resolve organization ID.
-	orgID := cr.Spec.OrganizationId
-	if orgID == "" {
-		// Use the default organization (first in the list).
-		orgs, err := r.Zitadel.Organization().ListOrganizations(ctx, nil)
-		if err != nil {
-			return "", fmt.Errorf("listing organizations to resolve default: %w", err)
-		}
-		if len(orgs.GetResult()) == 0 {
-			return "", fmt.Errorf("no organizations found")
-		}
-		orgID = orgs.GetResult()[0].GetId()
 	}
 
 	// Search by name.
@@ -140,7 +128,7 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 			{
 				Filter: &projectv2.ProjectSearchFilter_ProjectNameFilter{
 					ProjectNameFilter: &projectv2.ProjectNameFilter{
-						ProjectName: cr.Name,
+						ProjectName: displayName,
 						Method:      filterv2.TextFilterMethod_TEXT_FILTER_METHOD_EQUALS,
 					},
 				},
@@ -152,95 +140,27 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 	}
 
 	for _, p := range listResp.GetProjects() {
-		if p.GetName() == cr.Name {
+		if p.GetName() == displayName {
 			return p.GetProjectId(), nil
 		}
 	}
 
 	// Create new project.
 	createResp, err := r.Zitadel.Project().CreateProject(ctx, &projectv2.CreateProjectRequest{
-		OrganizationId:       orgID,
-		Name:                 cr.Name,
-		ProjectRoleAssertion: cr.Spec.AssertRolesOnAuth,
+		Name:           displayName,
+		OrganizationId: orgID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("creating project: %w", err)
 	}
 
-	projectID := createResp.GetProjectId()
-
-	// Update project with authorization check settings via Management v1 API
-	// (v2 CreateProject doesn't support ProjectRoleCheck/HasProjectCheck).
-	if cr.Spec.CheckAuthorizationOnAuth {
-		//nolint:staticcheck // Management v1 UpdateProject needed for ProjectRoleCheck (not in v2 API)
-		_, updateErr := r.Zitadel.Management().UpdateProject(ctx, &management.UpdateProjectRequest{
-			Id:                   projectID,
-			Name:                 cr.Name,
-			ProjectRoleAssertion: cr.Spec.AssertRolesOnAuth,
-			ProjectRoleCheck:     cr.Spec.CheckAuthorizationOnAuth,
-			HasProjectCheck:      cr.Spec.CheckAuthorizationOnAuth,
-		})
-		if updateErr != nil && status.Code(updateErr) != codes.FailedPrecondition {
-			return "", fmt.Errorf("updating project check settings: %w", updateErr)
-		}
-	}
-
-	return projectID, nil
-}
-
-func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID string, desiredRoles []string) error {
-	// List existing roles.
-	listResp, err := r.Zitadel.Project().ListProjectRoles(ctx, &projectv2.ListProjectRolesRequest{
-		ProjectId: projectID,
-	})
-	if err != nil {
-		return fmt.Errorf("listing project roles: %w", err)
-	}
-
-	existingRoles := make(map[string]bool)
-	for _, role := range listResp.GetProjectRoles() {
-		existingRoles[role.GetKey()] = true
-	}
-
-	desiredSet := make(map[string]bool)
-	for _, role := range desiredRoles {
-		desiredSet[role] = true
-	}
-
-	// Add missing roles.
-	for _, role := range desiredRoles {
-		if !existingRoles[role] {
-			_, err := r.Zitadel.Project().AddProjectRole(ctx, &projectv2.AddProjectRoleRequest{
-				ProjectId:   projectID,
-				RoleKey:     role,
-				DisplayName: role,
-			})
-			if err != nil && status.Code(err) != codes.AlreadyExists {
-				return fmt.Errorf("adding role %s: %w", role, err)
-			}
-		}
-	}
-
-	// Remove extra roles.
-	for role := range existingRoles {
-		if !desiredSet[role] {
-			_, err := r.Zitadel.Project().RemoveProjectRole(ctx, &projectv2.RemoveProjectRoleRequest{
-				ProjectId: projectID,
-				RoleKey:   role,
-			})
-			if err != nil && status.Code(err) != codes.NotFound {
-				return fmt.Errorf("removing role %s: %w", role, err)
-			}
-		}
-	}
-
-	return nil
+	return createResp.GetProjectId(), nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&zitadelv1alpha1.Project{}).
+		For(&zitadelv1alpha2.Project{}).
 		Named("project").
 		WithEventFilter(generationChangedPredicate()).
 		Complete(r)

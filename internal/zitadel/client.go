@@ -11,6 +11,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/client/profile"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	zitadelclient "github.com/zitadel/zitadel-go/v3/pkg/client"
+	actionv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/action/v2"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
 	applicationv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/application/v2"
 	idpv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/idp/v2"
@@ -202,6 +203,11 @@ func (c *Client) Management() management.ManagementServiceClient {
 // Admin returns the Admin service client (for instance-level operations).
 func (c *Client) Admin() admin.AdminServiceClient {
 	return c.inner.AdminService()
+}
+
+// Action returns the v2 Action service client.
+func (c *Client) Action() actionv2.ActionServiceClient {
+	return c.inner.ActionServiceV2()
 }
 
 func mustParsePort(port string) uint16 {

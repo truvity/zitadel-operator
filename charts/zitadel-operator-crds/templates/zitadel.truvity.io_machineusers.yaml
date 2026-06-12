@@ -15,13 +15,16 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.username
-      name: Username
+    - jsonPath: .status.userId
+      name: UserID
+      type: string
+    - jsonPath: .spec.userName
+      name: UserName
       type: string
     - jsonPath: .status.ready
       name: Ready
       type: boolean
-    name: v1alpha1
+    name: v1alpha2
     schema:
       openAPIV3Schema:
         description: MachineUser is the Schema for the machineusers API.
@@ -57,37 +60,14 @@ spec:
                 description: Description is an optional description of the machine
                   user.
                 type: string
-              keyExpirationDays:
-                description: |-
-                  KeyExpirationDays is the number of days until the machine key expires.
-                  Defaults to 3650 (10 years) if not set.
-                type: integer
               keySecretRef:
                 description: KeySecretRef references the Secret where the generated
                   key JSON will be stored.
                 properties:
-                  extraData:
-                    additionalProperties:
-                      type: string
-                    description: ExtraData adds static key-value pairs to the generated
-                      secret.
-                    type: object
-                  keys:
-                    description: |-
-                      Keys customizes the secret key names for clientId and clientSecret.
-                      Defaults: clientId → "client_id", clientSecret → "client_secret"
-                    properties:
-                      clientId:
-                        description: |-
-                          ClientId is the key name for the client ID in the generated secret.
-                          Default: "client_id"
-                        type: string
-                      clientSecret:
-                        description: |-
-                          ClientSecret is the key name for the client secret in the generated secret.
-                          Default: "client_secret"
-                        type: string
-                    type: object
+                  key:
+                    description: 'Key is the data key within the Secret. Default:
+                      "key.json"'
+                    type: string
                   name:
                     description: Name is the name of the Secret.
                     type: string
@@ -95,19 +75,37 @@ spec:
                 - name
                 type: object
               name:
-                description: Name is the display name of the machine user.
+                description: |-
+                  Name is the display name of the machine user.
+                  If empty, the Kubernetes resource name is used.
                 type: string
-              projectRef:
-                description: ProjectRef is an optional reference to a Project to grant
-                  PROJECT_OWNER role.
+              organizationId:
+                description: |-
+                  OrganizationId references a pre-existing Zitadel organization by raw ID.
+                  Mutually exclusive with OrganizationRef.
                 type: string
-              username:
-                description: Username is the login name for the machine user.
+              organizationRef:
+                description: |-
+                  OrganizationRef references an Organization CR managed by this operator.
+                  Mutually exclusive with OrganizationId.
+                properties:
+                  name:
+                    description: Name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the referenced resource.
+                      If empty, defaults to the same namespace as the referencing resource.
+                    type: string
+                required:
+                - name
+                type: object
+              userName:
+                description: UserName is the login name for the machine user.
                 type: string
             required:
             - keySecretRef
-            - name
-            - username
+            - userName
             type: object
           status:
             description: MachineUserStatus defines the observed state of MachineUser.
@@ -174,6 +172,9 @@ spec:
                 description: LastSyncTime is the last time the resource was synced
                   with Zitadel.
                 format: date-time
+                type: string
+              organizationId:
+                description: OrganizationId is the resolved organization ID.
                 type: string
               ready:
                 description: Ready indicates whether the MachineUser is successfully

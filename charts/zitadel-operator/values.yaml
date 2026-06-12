@@ -12,6 +12,9 @@ serviceAccount:
 
 rbac:
   create: true
+  # Namespaces where the operator should have Role/RoleBindings.
+  # If empty, uses ClusterRole (watches all namespaces).
+  namespaces: []
 
 resources:
   limits:
@@ -21,16 +24,21 @@ resources:
     cpu: 100m
     memory: 64Mi
 
-zitadel:
+# Operator configuration (rendered into ConfigMap).
+config:
   domain: ""
-  port: "8080"
-  insecure: true
+  port: "443"
+  insecure: false
   externalDomain: ""
-  jwtSecretName: zitadel-admin-sa
-  jwtSecretNamespace: zitadel
-  jwtSecretKey: ""
-  mode: iam-owner
-  project: ""
+  defaultOrganizationId: ""
+  # Limit operator to these namespaces. Empty = all namespaces.
+  watchNamespaces: []
+
+# JWT key Secret for authenticating to Zitadel.
+credentials:
+  secretName: zitadel-admin-sa
+  key: zitadel-admin-sa.json
+  mountPath: /etc/zitadel
 
 leaderElection:
   enabled: true

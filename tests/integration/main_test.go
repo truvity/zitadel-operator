@@ -1,17 +1,13 @@
 //go:build integration
 
-// Package integration provides end-to-end tests for the zitadel-operator against a real Zitadel instance.
+// Package integration provides end-to-end tests for the zitadel-operator v1alpha2
+// against a real Zitadel instance using envtest.
 //
 // Prerequisites:
 //   - JWT key stored in system keyring: service="zitadel-operator", username="jwt-key"
-//     (go-keyring uses service + username attributes)
 //   - Config at ~/.config/zitadel-operator/config.yaml with domain, port, insecure
 //
-// Store key:
-//
-//	secret-tool store --label='zitadel-operator jwt-key' service zitadel-operator username jwt-key < /path/to/key.json
-//
-// Run: go test -tags=integration -v ./tests/integration/...
+// Run: go test -tags=integration -v ./tests/integration/... -count=1
 package integration
 
 import (
@@ -27,6 +23,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/truvity/zitadel-operator/internal/config"
@@ -34,7 +31,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 	"github.com/zalando/go-keyring"
 
-	zitadelv1alpha1 "github.com/truvity/zitadel-operator/api/v1alpha1"
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 )
 
 var (
@@ -52,8 +49,6 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
 	// Auto-detect KUBEBUILDER_ASSETS if not set.
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		out, err := exec.Command("setup-envtest", "use", "--print", "path", "-p", "path").Output()
@@ -64,7 +59,6 @@ func TestMain(m *testing.M) {
 			)
 			os.Exit(1)
 		}
-
 		path := strings.TrimSpace(string(out))
 		os.Setenv("KUBEBUILDER_ASSETS", path)
 		slog.Info("auto-detected KUBEBUILDER_ASSETS", slog.String("path", path))
@@ -115,12 +109,14 @@ func TestMain(m *testing.M) {
 	}
 
 	// Register CRDs.
-	if err := zitadelv1alpha1.AddToScheme(scheme.Scheme); err != nil {
+	if err := zitadelv1alpha2.AddToScheme(scheme.Scheme); err != nil {
 		slog.Error("failed to add scheme", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	// Create shared manager with all controllers.
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zap.Options{Development: true})))
+
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:                 scheme.Scheme,
 		Metrics:                metricsserver.Options{BindAddress: "0"},
@@ -132,13 +128,63 @@ func TestMain(m *testing.M) {
 	}
 
 	// Register controllers.
-	if err := (&controller.ProjectReconciler{Client: mgr.GetClient(), Zitadel: zitadelClient}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.OrganizationReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup OrganizationReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.ProjectReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup ProjectReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
-	if err := (&controller.OIDCAppReconciler{Client: mgr.GetClient(), Zitadel: zitadelClient}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.OIDCAppReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup OIDCAppReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.MachineUserReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup MachineUserReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.UserGrantReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup UserGrantReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.ActionTargetReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ActionTargetReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.ActionExecutionReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ActionExecutionReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
@@ -164,7 +210,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	logger.Info("test setup complete",
+	slog.Info("test setup complete",
 		slog.String("domain", cfg.Domain),
 		slog.String("port", cfg.Port),
 	)
