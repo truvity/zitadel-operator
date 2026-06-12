@@ -1,4 +1,4 @@
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -6,14 +6,26 @@ import (
 
 // OIDCAppSpec defines the desired state of OIDCApp.
 type OIDCAppSpec struct {
-	// Project is the name of the Zitadel project this app belongs to.
-	Project string `json:"project"`
+	// ProjectRef references a Project CR managed by this operator.
+	// Mutually exclusive with ProjectId.
+	// +optional
+	ProjectRef *ResourceRef `json:"projectRef,omitempty"`
 
-	// Type is the OIDC application type (confidential or public).
+	// ProjectId references a pre-existing Zitadel project by raw ID.
+	// Mutually exclusive with ProjectRef.
+	// +optional
+	ProjectId string `json:"projectId,omitempty"`
+
+	// Name is the display name of the application in Zitadel.
+	// If empty, the Kubernetes resource name is used.
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// Type is the OIDC application type.
 	// +kubebuilder:validation:Enum=confidential;public
 	Type string `json:"type"`
 
-	// AuthMethod is the authentication method (basic or none).
+	// AuthMethod is the authentication method.
 	// +kubebuilder:validation:Enum=basic;none
 	AuthMethod string `json:"authMethod"`
 
@@ -37,14 +49,23 @@ type OIDCAppSpec struct {
 	// +optional
 	IdTokenRoleAssertion bool `json:"idTokenRoleAssertion,omitempty"`
 
-	// SecretRef references the Secret where the client secret will be stored.
+	// SecretRef references the Secret where the client credentials will be stored.
 	SecretRef SecretRefSpec `json:"secretRef"`
 }
 
 // OIDCAppStatus defines the observed state of OIDCApp.
 type OIDCAppStatus struct {
+	// ApplicationId is the Zitadel application ID.
+	ApplicationId string `json:"applicationId,omitempty"`
+
 	// ClientId is the OIDC client ID assigned by Zitadel.
 	ClientId string `json:"clientId,omitempty"`
+
+	// ProjectId is the resolved project ID this app belongs to.
+	ProjectId string `json:"projectId,omitempty"`
+
+	// OrganizationId is the resolved organization ID (inherited from project).
+	OrganizationId string `json:"organizationId,omitempty"`
 
 	// Ready indicates whether the OIDCApp is successfully synced.
 	Ready bool `json:"ready,omitempty"`
@@ -58,8 +79,8 @@ type OIDCAppStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.project`
-// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
+// +kubebuilder:printcolumn:name="ClientID",type=string,JSONPath=`.status.clientId`
+// +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.status.projectId`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
 
 // OIDCApp is the Schema for the oidcapps API.
@@ -78,4 +99,13 @@ type OIDCAppList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []OIDCApp `json:"items"`
+}
+
+// DisplayName returns the app display name for Zitadel.
+// Falls back to the Kubernetes resource name if spec.name is empty.
+func (a *OIDCApp) DisplayName() string {
+	if a.Spec.Name != "" {
+		return a.Spec.Name
+	}
+	return a.Name
 }

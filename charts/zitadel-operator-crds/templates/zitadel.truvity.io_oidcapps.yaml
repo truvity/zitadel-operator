@@ -15,16 +15,16 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.project
-      name: Project
+    - jsonPath: .status.clientId
+      name: ClientID
       type: string
-    - jsonPath: .spec.type
-      name: Type
+    - jsonPath: .status.projectId
+      name: Project
       type: string
     - jsonPath: .status.ready
       name: Ready
       type: boolean
-    name: v1alpha1
+    name: v1alpha2
     schema:
       openAPIV3Schema:
         description: OIDCApp is the Schema for the oidcapps API.
@@ -60,7 +60,7 @@ spec:
                 - jwt
                 type: string
               authMethod:
-                description: AuthMethod is the authentication method (basic or none).
+                description: AuthMethod is the authentication method.
                 enum:
                 - basic
                 - none
@@ -69,23 +69,45 @@ spec:
                 description: IdTokenRoleAssertion determines whether roles are included
                   in the ID token.
                 type: boolean
+              name:
+                description: |-
+                  Name is the display name of the application in Zitadel.
+                  If empty, the Kubernetes resource name is used.
+                type: string
               postLogoutRedirectUris:
                 description: PostLogoutRedirectUris is the list of allowed post-logout
                   redirect URIs.
                 items:
                   type: string
                 type: array
-              project:
-                description: Project is the name of the Zitadel project this app belongs
-                  to.
+              projectId:
+                description: |-
+                  ProjectId references a pre-existing Zitadel project by raw ID.
+                  Mutually exclusive with ProjectRef.
                 type: string
+              projectRef:
+                description: |-
+                  ProjectRef references a Project CR managed by this operator.
+                  Mutually exclusive with ProjectId.
+                properties:
+                  name:
+                    description: Name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the referenced resource.
+                      If empty, defaults to the same namespace as the referencing resource.
+                    type: string
+                required:
+                - name
+                type: object
               redirectUris:
                 description: RedirectUris is the list of allowed redirect URIs.
                 items:
                   type: string
                 type: array
               secretRef:
-                description: SecretRef references the Secret where the client secret
+                description: SecretRef references the Secret where the client credentials
                   will be stored.
                 properties:
                   extraData:
@@ -117,14 +139,13 @@ spec:
                 - name
                 type: object
               type:
-                description: Type is the OIDC application type (confidential or public).
+                description: Type is the OIDC application type.
                 enum:
                 - confidential
                 - public
                 type: string
             required:
             - authMethod
-            - project
             - redirectUris
             - secretRef
             - type
@@ -132,6 +153,9 @@ spec:
           status:
             description: OIDCAppStatus defines the observed state of OIDCApp.
             properties:
+              applicationId:
+                description: ApplicationId is the Zitadel application ID.
+                type: string
               clientId:
                 description: ClientId is the OIDC client ID assigned by Zitadel.
                 type: string
@@ -197,6 +221,14 @@ spec:
                 description: LastSyncTime is the last time the resource was synced
                   with Zitadel.
                 format: date-time
+                type: string
+              organizationId:
+                description: OrganizationId is the resolved organization ID (inherited
+                  from project).
+                type: string
+              projectId:
+                description: ProjectId is the resolved project ID this app belongs
+                  to.
                 type: string
               ready:
                 description: Ready indicates whether the OIDCApp is successfully synced.

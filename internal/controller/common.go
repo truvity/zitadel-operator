@@ -10,10 +10,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/truvity/zitadel-operator/internal/zitadel"
-
-	objectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
-	userv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
 )
 
 const (
@@ -49,27 +47,63 @@ func generationChangedPredicate() predicate.Predicate {
 	return predicate.GenerationChangedPredicate{}
 }
 
-// resolveUserIDByEmail resolves a user email address to a Zitadel user ID using the v2 User service.
-func resolveUserIDByEmail(ctx context.Context, z *zitadel.Client, email string) (string, error) {
-	resp, err := z.User().ListUsers(ctx, &userv2.ListUsersRequest{
-		Queries: []*userv2.SearchQuery{
-			{
-				Query: &userv2.SearchQuery_EmailQuery{
-					EmailQuery: &userv2.EmailQuery{
-						EmailAddress: email,
-						Method:       objectv2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS,
-					},
-				},
-			},
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("listing users by email %q: %w", email, err)
+// resolveOrganizationId resolves the organization ID from either an OrganizationRef,
+// an explicit OrganizationId, or the operator's default organization ID.
+func resolveOrganizationId(ctx context.Context, k8s client.Client, cfg *config.Config, ref *zitadelv1alpha2.ResourceRef, explicitID string, sourceNamespace string) (string, error) {
+	if ref != nil && explicitID != "" {
+		return "", fmt.Errorf("organizationRef and organizationId are mutually exclusive")
 	}
 
-	if len(resp.GetResult()) == 0 {
-		return "", fmt.Errorf("user with email %q not found", email)
+	if explicitID != "" {
+		return explicitID, nil
 	}
 
-	return resp.GetResult()[0].GetUserId(), nil
+	if ref != nil {
+		ns := ref.Namespace
+		if ns == "" {
+			ns = sourceNamespace
+		}
+		var org zitadelv1alpha2.Organization
+		if err := k8s.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: ns}, &org); err != nil {
+			return "", fmt.Errorf("resolving organizationRef %s/%s: %w", ns, ref.Name, err)
+		}
+		if org.Status.OrganizationId == "" {
+			return "", fmt.Errorf("organizationRef %s/%s not yet ready (no organizationId in status)", ns, ref.Name)
+		}
+		return org.Status.OrganizationId, nil
+	}
+
+	if cfg.DefaultOrganizationId != "" {
+		return cfg.DefaultOrganizationId, nil
+	}
+
+	return "", fmt.Errorf("no organization specified: set organizationRef, organizationId, or configure defaultOrganizationId")
+}
+
+// resolveProjectId resolves the project ID from either a ProjectRef or explicit ProjectId.
+func resolveProjectId(ctx context.Context, k8s client.Client, ref *zitadelv1alpha2.ResourceRef, explicitID string, sourceNamespace string) (projectID string, orgID string, err error) {
+	if ref != nil && explicitID != "" {
+		return "", "", fmt.Errorf("projectRef and projectId are mutually exclusive")
+	}
+
+	if ref == nil && explicitID == "" {
+		return "", "", fmt.Errorf("one of projectRef or projectId is required")
+	}
+
+	if explicitID != "" {
+		return explicitID, "", nil
+	}
+
+	ns := ref.Namespace
+	if ns == "" {
+		ns = sourceNamespace
+	}
+	var proj zitadelv1alpha2.Project
+	if err := k8s.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: ns}, &proj); err != nil {
+		return "", "", fmt.Errorf("resolving projectRef %s/%s: %w", ns, ref.Name, err)
+	}
+	if proj.Status.ProjectId == "" {
+		return "", "", fmt.Errorf("projectRef %s/%s not yet ready (no projectId in status)", ns, ref.Name)
+	}
+	return proj.Status.ProjectId, proj.Status.OrganizationId, nil
 }

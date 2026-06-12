@@ -1,6 +1,18 @@
-package v1alpha1
+package v1alpha2
 
-// SecretRefSpec references a Kubernetes Secret by name in the same namespace.
+// ResourceRef references a Kubernetes resource by name and optional namespace.
+// If namespace is omitted, defaults to the same namespace as the referencing resource.
+type ResourceRef struct {
+	// Name is the name of the referenced resource.
+	Name string `json:"name"`
+
+	// Namespace is the namespace of the referenced resource.
+	// If empty, defaults to the same namespace as the referencing resource.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// SecretRefSpec references a Kubernetes Secret where credentials will be stored.
 type SecretRefSpec struct {
 	// Name is the name of the Secret.
 	Name string `json:"name"`
@@ -28,23 +40,12 @@ type SecretKeys struct {
 	ClientSecret string `json:"clientSecret,omitempty"`
 }
 
-// SecretKeyRef references a specific key in a Kubernetes Secret.
-type SecretKeyRef struct {
+// MachineKeySecretRef references a Secret where the machine user key JSON will be stored.
+type MachineKeySecretRef struct {
 	// Name is the name of the Secret.
 	Name string `json:"name"`
 
-	// Namespace is the namespace of the Secret.
-	Namespace string `json:"namespace"`
-
-	// Key is the key within the Secret data.
-	Key string `json:"key"`
-}
-
-// NamespacedRef references a resource by name and namespace.
-type NamespacedRef struct {
-	// Name is the name of the resource.
-	Name string `json:"name"`
-
-	// Namespace is the namespace of the resource.
-	Namespace string `json:"namespace"`
+	// Key is the data key within the Secret. Default: "key.json"
+	// +optional
+	Key string `json:"key,omitempty"`
 }

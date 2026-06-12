@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	corev1 "k8s.io/api/core/v1"
@@ -13,20 +14,23 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	zitadelv1alpha1 "github.com/truvity/zitadel-operator/api/v1alpha1"
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
-	objectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
-	userv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/authn"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+	objectv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object"
+	userv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user"
 )
 
 // MachineUserReconciler reconciles a MachineUser object.
 type MachineUserReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
+	Config  *config.Config
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=machineusers,verbs=get;list;watch;create;update;patch;delete
@@ -37,20 +41,28 @@ type MachineUserReconciler struct {
 func (r *MachineUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// Fetch the MachineUser CR.
-	var cr zitadelv1alpha1.MachineUser
+	var cr zitadelv1alpha2.MachineUser
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Resolve organization.
+	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
+	}
+
+	// Set org context for Management API calls.
+	ctx = withOrgID(ctx, orgID)
+
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
 		if cr.Status.UserId != "" {
-			_, err := r.Zitadel.User().DeleteUser(ctx, &userv2.DeleteUserRequest{
-				UserId: cr.Status.UserId,
+			_, err := r.Zitadel.Management().RemoveUser(ctx, &management.RemoveUserRequest{
+				Id: cr.Status.UserId,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("deleting user: %w", err)
+				return ctrl.Result{}, fmt.Errorf("deleting machine user: %w", err)
 			}
 		}
 		if removeFinalizer(&cr) {
@@ -68,53 +80,56 @@ func (r *MachineUserReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	// Create or get machine user by username.
-	userID, err := r.ensureMachineUser(ctx, &cr)
+	// Ensure machine user exists.
+	userID, err := r.ensureMachineUser(ctx, &cr, orgID)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Generate machine key if secret doesn't exist yet.
-	if err := r.ensureMachineKey(ctx, &cr, userID); err != nil {
+	// Ensure key exists and is stored in Secret.
+	if err := r.ensureKey(ctx, &cr, userID); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	now := metav1.NewTime(time.Now())
-	cr.Status.UserId = userID
-	cr.Status.Ready = true
-	cr.Status.LastSyncTime = &now
-	if err := r.Status().Update(ctx, &cr); err != nil {
-		return ctrl.Result{}, err
+	// Update status only if changed.
+	if cr.Status.UserId != userID || cr.Status.OrganizationId != orgID || !cr.Status.Ready {
+		now := metav1.NewTime(time.Now())
+		cr.Status.UserId = userID
+		cr.Status.OrganizationId = orgID
+		cr.Status.Ready = true
+		cr.Status.LastSyncTime = &now
+		if err := r.Status().Update(ctx, &cr); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
-	logger.Info("machineuser reconciled", "userId", userID)
+	logger.Info("machineuser reconciled", "userId", userID, "orgId", orgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
-func (r *MachineUserReconciler) ensureMachineUser(ctx context.Context, cr *zitadelv1alpha1.MachineUser) (string, error) {
+func (r *MachineUserReconciler) ensureMachineUser(ctx context.Context, cr *zitadelv1alpha2.MachineUser, orgID string) (string, error) {
 	// If we already have a user ID, verify it still exists.
 	if cr.Status.UserId != "" {
-		_, err := r.Zitadel.User().GetUserByID(ctx, &userv2.GetUserByIDRequest{
-			UserId: cr.Status.UserId,
+		_, err := r.Zitadel.Management().GetUserByID(ctx, &management.GetUserByIDRequest{
+			Id: cr.Status.UserId,
 		})
 		if err == nil {
 			return cr.Status.UserId, nil
 		}
 		if status.Code(err) != codes.NotFound {
-			return "", fmt.Errorf("getting user: %w", err)
+			return "", fmt.Errorf("getting user by ID: %w", err)
 		}
 		// User was deleted externally, recreate.
 	}
 
-	// Search by username.
-	listResp, err := r.Zitadel.User().ListUsers(ctx, &userv2.ListUsersRequest{
-		Queries: []*userv2.SearchQuery{
+	// Search by username via Management API.
+	listResp, err := r.Zitadel.Management().ListUsers(ctx, &management.ListUsersRequest{
+		Queries: []*userv1.SearchQuery{
 			{
-				Query: &userv2.SearchQuery_UserNameQuery{
-					UserNameQuery: &userv2.UserNameQuery{
-						UserName: cr.Spec.Username,
-						Method:   objectv2.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS,
+				Query: &userv1.SearchQuery_UserNameQuery{
+					UserNameQuery: &userv1.UserNameQuery{
+						UserName: cr.Spec.UserName,
+						Method:   objectv1.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS,
 					},
 				},
 			},
@@ -124,88 +139,92 @@ func (r *MachineUserReconciler) ensureMachineUser(ctx context.Context, cr *zitad
 		return "", fmt.Errorf("listing users: %w", err)
 	}
 
-	for _, user := range listResp.GetResult() {
-		if user.GetUsername() == cr.Spec.Username {
-			return user.GetUserId(), nil
+	for _, u := range listResp.GetResult() {
+		if u.GetUserName() == cr.Spec.UserName {
+			return u.GetId(), nil
 		}
 	}
 
-	// Create new machine user.
-	username := cr.Spec.Username
-	description := cr.Spec.Description
-	createResp, err := r.Zitadel.User().CreateUser(ctx, &userv2.CreateUserRequest{
-		Username: &username,
-		UserType: &userv2.CreateUserRequest_Machine_{
-			Machine: &userv2.CreateUserRequest_Machine{
-				Name:        cr.Spec.Name,
-				Description: &description,
-			},
-		},
+	// Resolve access token type.
+	accessTokenType := userv1.AccessTokenType_ACCESS_TOKEN_TYPE_BEARER
+	if cr.Spec.AccessTokenType == "jwt" {
+		accessTokenType = userv1.AccessTokenType_ACCESS_TOKEN_TYPE_JWT
+	}
+
+	// Create machine user via Management API.
+	createResp, err := r.Zitadel.Management().AddMachineUser(ctx, &management.AddMachineUserRequest{
+		UserName:        cr.Spec.UserName,
+		Name:            cr.DisplayName(),
+		Description:     cr.Spec.Description,
+		AccessTokenType: accessTokenType,
 	})
 	if err != nil {
 		return "", fmt.Errorf("creating machine user: %w", err)
 	}
 
-	return createResp.GetId(), nil
+	return createResp.GetUserId(), nil
 }
 
-func (r *MachineUserReconciler) ensureMachineKey(ctx context.Context, cr *zitadelv1alpha1.MachineUser, userID string) error {
-	// Check if the key secret already exists.
+func (r *MachineUserReconciler) ensureKey(ctx context.Context, cr *zitadelv1alpha2.MachineUser, userID string) error {
+	secretKey := cr.Spec.KeySecretRef.Key
+	if secretKey == "" {
+		secretKey = "key.json"
+	}
+
+	// Check if Secret already exists with key data.
 	secret := &corev1.Secret{}
-	err := r.Get(ctx, types.NamespacedName{
-		Name:      cr.Spec.KeySecretRef.Name,
-		Namespace: cr.Namespace,
-	}, secret)
-	if err == nil {
-		// Secret already exists, key was already generated.
-		return nil
-	}
-	if client.IgnoreNotFound(err) != nil {
-		return fmt.Errorf("checking key secret: %w", err)
+	err := r.Get(ctx, types.NamespacedName{Name: cr.Spec.KeySecretRef.Name, Namespace: cr.Namespace}, secret)
+	if err == nil && len(secret.Data[secretKey]) > 0 {
+		return nil // Key already stored.
 	}
 
-	// Generate a new machine key.
-	expirationDays := cr.Spec.KeyExpirationDays
-	if expirationDays <= 0 {
-		expirationDays = 3650 // Default: 10 years.
-	}
-	keyResp, err := r.Zitadel.User().AddKey(ctx, &userv2.AddKeyRequest{
+	// Create a new key via Management API.
+	expiration := time.Now().Add(365 * 10 * 24 * time.Hour) // 10 years
+	keyResp, err := r.Zitadel.Management().AddMachineKey(ctx, &management.AddMachineKeyRequest{
 		UserId:         userID,
-		ExpirationDate: timestamppb.New(time.Now().AddDate(0, 0, expirationDays)),
+		Type:           authn.KeyType_KEY_TYPE_JSON,
+		ExpirationDate: timestamppb.New(expiration),
 	})
 	if err != nil {
-		return fmt.Errorf("adding machine key: %w", err)
+		return fmt.Errorf("creating machine key: %w", err)
 	}
 
-	// Write key JSON to K8s Secret.
-	keySecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cr.Spec.KeySecretRef.Name,
-			Namespace: cr.Namespace,
-		},
-	}
+	// keyDetails is the full key JSON from Zitadel.
+	keyJSON := keyResp.GetKeyDetails()
 
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, keySecret, func() error {
-		if keySecret.Data == nil {
-			keySecret.Data = make(map[string][]byte)
+	// Store in Secret.
+	if secret.Name == "" {
+		// Create new secret.
+		newSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cr.Spec.KeySecretRef.Name,
+				Namespace: cr.Namespace,
+			},
+			Data: map[string][]byte{
+				secretKey: keyJSON,
+			},
 		}
-		keySecret.Data["key.json"] = keyResp.GetKeyContent()
-		keySecret.Data["key_id"] = []byte(keyResp.GetKeyId())
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("creating key secret: %w", err)
+		return r.Create(ctx, newSecret)
 	}
 
-	return nil
+	// Update existing secret.
+	if secret.Data == nil {
+		secret.Data = make(map[string][]byte)
+	}
+	secret.Data[secretKey] = keyJSON
+	return r.Update(ctx, secret)
+}
+
+// withOrgID adds x-zitadel-orgid metadata to the context for Management API calls.
+func withOrgID(ctx context.Context, orgID string) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MachineUserReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&zitadelv1alpha1.MachineUser{}).
+		For(&zitadelv1alpha2.MachineUser{}).
 		Named("machineuser").
-		WithEventFilter(generationChangedPredicate()).
 		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

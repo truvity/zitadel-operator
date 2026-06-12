@@ -5,7 +5,6 @@ generate:
     controller-gen object paths="./api/..."
     controller-gen crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
     cp config/crd/bases/*.yaml charts/zitadel-operator-crds/templates/
-
 # Build the operator binary (depends on generate to ensure CRDs are up to date)
 build: generate
     go build -o bin/zitadel-operator ./cmd/operator/
@@ -29,7 +28,7 @@ vuln:
 # Verify generated files are committed (fails if generate produces uncommitted changes)
 verify-generate: generate
     @echo "Checking for uncommitted generated files..."
-    @git diff --exit-code -- config/crd/ charts/zitadel-operator-crds/templates/ api/v1alpha1/zz_generated.deepcopy.go || (echo "ERROR: Generated files are out of date. Run 'just generate' and commit." && exit 1)
+    @git diff --exit-code -- config/crd/ charts/zitadel-operator-crds/templates/ api/v1alpha2/zz_generated.deepcopy.go || (echo "ERROR: Generated files are out of date. Run 'just generate' and commit." && exit 1)
     @echo "✅ Generated files are up to date."
 
 # Run go mod tidy

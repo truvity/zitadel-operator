@@ -1,4 +1,4 @@
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -6,18 +6,16 @@ import (
 
 // OrganizationSpec defines the desired state of Organization.
 type OrganizationSpec struct {
-	// DisplayName is the human-readable name of the organization.
-	DisplayName string `json:"displayName"`
-
-	// Domain is the optional domain for the organization.
+	// Name is the display name of the organization in Zitadel.
+	// If empty, the Kubernetes resource name is used.
 	// +optional
-	Domain string `json:"domain,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // OrganizationStatus defines the observed state of Organization.
 type OrganizationStatus struct {
-	// OrgId is the Zitadel organization ID.
-	OrgId string `json:"orgId,omitempty"`
+	// OrganizationId is the Zitadel organization ID.
+	OrganizationId string `json:"organizationId,omitempty"`
 
 	// Ready indicates whether the Organization is successfully synced.
 	Ready bool `json:"ready,omitempty"`
@@ -31,8 +29,7 @@ type OrganizationStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
-// +kubebuilder:printcolumn:name="DisplayName",type=string,JSONPath=`.spec.displayName`
+// +kubebuilder:printcolumn:name="OrgID",type=string,JSONPath=`.status.organizationId`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
 
 // Organization is the Schema for the organizations API.
@@ -51,4 +48,13 @@ type OrganizationList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Organization `json:"items"`
+}
+
+// DisplayName returns the organization display name for Zitadel.
+// Falls back to the Kubernetes resource name if spec.name is empty.
+func (o *Organization) DisplayName() string {
+	if o.Spec.Name != "" {
+		return o.Spec.Name
+	}
+	return o.Name
 }
