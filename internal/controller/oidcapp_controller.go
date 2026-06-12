@@ -147,7 +147,8 @@ func (r *OIDCAppReconciler) findAppByName(ctx context.Context, projectID, appNam
 
 	for _, app := range listResp.GetApplications() {
 		if app.GetName() == appName {
-			return app.GetApplicationId(), app
+			appID := app.GetApplicationId()
+			return appID, app
 		}
 	}
 	return "", nil

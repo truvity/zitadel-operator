@@ -79,7 +79,7 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
 		if cr.Status.GrantId != "" {
-			_, err := r.Zitadel.Management().RemoveUserGrant(ctx, &management.RemoveUserGrantRequest{
+			_, err := r.Zitadel.Management().RemoveUserGrant(ctx, &management.RemoveUserGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
 				UserId:  userID,
 				GrantId: cr.Status.GrantId,
 			})
@@ -151,14 +151,14 @@ func (r *UserGrantReconciler) resolveUserID(ctx context.Context, cr *zitadelv1al
 func (r *UserGrantReconciler) ensureUserGrant(ctx context.Context, userID, projectID string, desiredRoles []string, existingGrantID string) (string, error) {
 	// If we have an existing grant ID, check if it still exists and update roles if needed.
 	if existingGrantID != "" {
-		resp, err := r.Zitadel.Management().GetUserGrantByID(ctx, &management.GetUserGrantByIDRequest{
+		resp, err := r.Zitadel.Management().GetUserGrantByID(ctx, &management.GetUserGrantByIDRequest{ //nolint:staticcheck // no v2 equivalent yet
 			UserId:  userID,
 			GrantId: existingGrantID,
 		})
 		if err == nil {
 			// Grant exists, check if roles need updating.
 			if !rolesEqual(resp.GetUserGrant().GetRoleKeys(), desiredRoles) {
-				_, err := r.Zitadel.Management().UpdateUserGrant(ctx, &management.UpdateUserGrantRequest{
+				_, err := r.Zitadel.Management().UpdateUserGrant(ctx, &management.UpdateUserGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
 					UserId:   userID,
 					GrantId:  existingGrantID,
 					RoleKeys: desiredRoles,
@@ -176,7 +176,7 @@ func (r *UserGrantReconciler) ensureUserGrant(ctx context.Context, userID, proje
 	}
 
 	// Search for existing grant by user+project.
-	listResp, err := r.Zitadel.Management().ListUserGrants(ctx, &management.ListUserGrantRequest{
+	listResp, err := r.Zitadel.Management().ListUserGrants(ctx, &management.ListUserGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
 		Query: &object.ListQuery{Limit: 100},
 		Queries: []*user.UserGrantQuery{
 			{
@@ -203,7 +203,7 @@ func (r *UserGrantReconciler) ensureUserGrant(ctx context.Context, userID, proje
 		if grant.GetProjectId() == projectID && grant.GetUserId() == userID {
 			// Found existing grant, update roles if needed.
 			if !rolesEqual(grant.GetRoleKeys(), desiredRoles) {
-				_, err := r.Zitadel.Management().UpdateUserGrant(ctx, &management.UpdateUserGrantRequest{
+				_, err := r.Zitadel.Management().UpdateUserGrant(ctx, &management.UpdateUserGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
 					UserId:   userID,
 					GrantId:  grant.GetId(),
 					RoleKeys: desiredRoles,
@@ -217,7 +217,7 @@ func (r *UserGrantReconciler) ensureUserGrant(ctx context.Context, userID, proje
 	}
 
 	// Create new grant.
-	addResp, err := r.Zitadel.Management().AddUserGrant(ctx, &management.AddUserGrantRequest{
+	addResp, err := r.Zitadel.Management().AddUserGrant(ctx, &management.AddUserGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
 		UserId:    userID,
 		ProjectId: projectID,
 		RoleKeys:  desiredRoles,

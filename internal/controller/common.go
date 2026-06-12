@@ -53,7 +53,7 @@ func generationChangedPredicate() predicate.Predicate {
 
 // resolveOrganizationId resolves the organization ID from either an OrganizationRef,
 // an explicit OrganizationId, or the operator's default organization ID.
-func resolveOrganizationId(ctx context.Context, k8s client.Client, cfg *config.Config, ref *zitadelv1alpha2.ResourceRef, explicitID string, sourceNamespace string) (string, error) {
+func resolveOrganizationId(ctx context.Context, k8s client.Client, cfg *config.Config, ref *zitadelv1alpha2.ResourceRef, explicitID, sourceNamespace string) (string, error) {
 	if ref != nil && explicitID != "" {
 		return "", fmt.Errorf("organizationRef and organizationId are mutually exclusive")
 	}
@@ -85,7 +85,7 @@ func resolveOrganizationId(ctx context.Context, k8s client.Client, cfg *config.C
 }
 
 // resolveProjectId resolves the project ID from either a ProjectRef or explicit ProjectId.
-func resolveProjectId(ctx context.Context, k8s client.Client, ref *zitadelv1alpha2.ResourceRef, explicitID string, sourceNamespace string) (projectID string, orgID string, err error) {
+func resolveProjectId(ctx context.Context, k8s client.Client, ref *zitadelv1alpha2.ResourceRef, explicitID, sourceNamespace string) (projectID, orgID string, err error) {
 	if ref != nil && explicitID != "" {
 		return "", "", fmt.Errorf("projectRef and projectId are mutually exclusive")
 	}
