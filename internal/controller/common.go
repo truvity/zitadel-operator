@@ -4,6 +4,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -20,6 +21,9 @@ const (
 
 	// requeueInterval is the default requeue interval for periodic reconciliation.
 	requeueInterval = 5 * time.Minute
+
+	// requeueOnError is the requeue interval for transient errors (ref not ready, etc).
+	requeueOnError = 10 * time.Second
 )
 
 // addFinalizer adds the finalizer to the object if not already present.
@@ -106,4 +110,13 @@ func resolveProjectId(ctx context.Context, k8s client.Client, ref *zitadelv1alph
 		return "", "", fmt.Errorf("projectRef %s/%s not yet ready (no projectId in status)", ns, ref.Name)
 	}
 	return proj.Status.ProjectId, proj.Status.OrganizationId, nil
+}
+
+// isRefNotReady returns true if the error indicates a referenced resource
+// is not yet ready (transient — will resolve once the dependency reconciles).
+func isRefNotReady(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "not yet ready")
 }

@@ -49,6 +49,10 @@ func (r *MachineUserReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Resolve organization.
 	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
+		if isRefNotReady(err) {
+			logger.Info("waiting for organization ref to become ready", "error", err)
+			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
 

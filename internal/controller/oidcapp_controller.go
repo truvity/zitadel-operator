@@ -46,6 +46,10 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Resolve project ID (and inherited org ID).
 	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
+		if isRefNotReady(err) {
+			logger.Info("waiting for project ref to become ready", "error", err)
+			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
 	}
 
