@@ -19,23 +19,42 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/controller"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 	"github.com/zalando/go-keyring"
+
+	zitadelv1alpha1 "github.com/truvity/zitadel-operator/api/v1alpha1"
 )
 
 var (
+	// zitadelClient is the direct Zitadel API client (shared by all tests).
 	zitadelClient *zitadel.Client
-	cfg           *config.Config
+
+	// cfg is the operator config loaded from ~/.config/zitadel-operator/config.yaml.
+	cfg *config.Config
+
+	// k8sClient is the envtest K8s client (shared by reconciler tests).
+	k8sClient client.Client
+
+	// mgrCancel stops the shared manager.
+	mgrCancel context.CancelFunc
 )
 
 func TestMain(m *testing.M) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	// Auto-detect KUBEBUILDER_ASSETS if not set (requires setup-envtest in PATH via devbox).
+	// Auto-detect KUBEBUILDER_ASSETS if not set.
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		out, err := exec.Command("setup-envtest", "use", "--print", "path", "-p", "path").Output()
 		if err != nil {
@@ -60,7 +79,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	// Load JWT key from system keyring via go-keyring.
+	// Load JWT key from system keyring.
 	keyJSON, err := keyring.Get("zitadel-operator", "jwt-key")
 	if err != nil {
 		slog.Error("failed to read JWT key from keyring",
@@ -72,7 +91,6 @@ func TestMain(m *testing.M) {
 
 	// Create the Zitadel client.
 	ctx := context.Background()
-
 	zitadelClient, err = zitadel.NewClient(ctx, &zitadel.ClientConfig{
 		Domain:            cfg.Domain,
 		Port:              cfg.Port,
@@ -84,10 +102,81 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// Start shared envtest environment.
+	testEnv := &envtest.Environment{
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: true,
+	}
+
+	restCfg, err := testEnv.Start()
+	if err != nil {
+		slog.Error("failed to start envtest", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Register CRDs.
+	if err := zitadelv1alpha1.AddToScheme(scheme.Scheme); err != nil {
+		slog.Error("failed to add scheme", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Create shared manager with all controllers.
+	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
+		Scheme:                 scheme.Scheme,
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+	})
+	if err != nil {
+		slog.Error("failed to create manager", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Register controllers.
+	if err := (&controller.ProjectReconciler{Client: mgr.GetClient(), Zitadel: zitadelClient}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ProjectReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.OIDCAppReconciler{Client: mgr.GetClient(), Zitadel: zitadelClient}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup OIDCAppReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Start manager.
+	var mgrCtx context.Context
+	mgrCtx, mgrCancel = context.WithCancel(ctx)
+	go func() {
+		if err := mgr.Start(mgrCtx); err != nil {
+			slog.Error("manager stopped with error", slog.Any("error", err))
+		}
+	}()
+
+	// Wait for cache sync.
+	if !mgr.GetCache().WaitForCacheSync(ctx) {
+		slog.Error("cache sync timeout")
+		os.Exit(1)
+	}
+
+	// Create shared k8s client.
+	k8sClient, err = client.New(restCfg, client.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		slog.Error("failed to create k8s client", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	logger.Info("test setup complete",
 		slog.String("domain", cfg.Domain),
 		slog.String("port", cfg.Port),
 	)
 
-	os.Exit(m.Run())
+	// Run tests.
+	code := m.Run()
+
+	// Cleanup.
+	mgrCancel()
+	if err := testEnv.Stop(); err != nil {
+		slog.Error("failed to stop envtest", slog.Any("error", err))
+	}
+
+	os.Exit(code)
 }
