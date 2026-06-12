@@ -33,7 +33,7 @@ jobs:
         run: devbox run -- goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KO_DOCKER_REPO: ghcr.io/truvity
+          KO_DOCKER_REPO: ghcr.io/truvity/zitadel-operator
 
       - name: Package and push Helm charts
         run: |
