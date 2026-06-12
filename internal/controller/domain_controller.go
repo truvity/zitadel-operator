@@ -86,6 +86,7 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if !cr.Status.Ready {
 		now := metav1.NewTime(time.Now())
 		cr.Status.Ready = true
+		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
 		cr.Status.LastSyncTime = &now
 		if err := r.Status().Update(ctx, &cr); err != nil {
 			return ctrl.Result{}, err

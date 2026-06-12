@@ -22,21 +22,21 @@ import (
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object"
 )
 
-// ProjectMemberReconciler reconciles a ProjectMember object.
-type ProjectMemberReconciler struct {
+// ProjectGrantMemberReconciler reconciles a ProjectGrantMember object.
+type ProjectGrantMemberReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
 }
 
-// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectmembers,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectmembers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectmembers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectgrantmembers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectgrantmembers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectgrantmembers/finalizers,verbs=update
 
-func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ProjectGrantMemberReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var cr zitadelv1alpha2.ProjectMember
+	var cr zitadelv1alpha2.ProjectGrantMember
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -69,7 +69,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Resolve user ID.
-	userID, err := r.resolveUserID(ctx, &cr)
+	userID, err := resolveUserId(ctx, r.Client, cr.Spec.UserRef, cr.Spec.UserId, cr.Namespace)
 	if err != nil {
 		if isRefNotReady(err) {
 			logger.Info("waiting for user ref to become ready", "error", err)
@@ -80,14 +80,17 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("resolving user: %w", err)
 	}
 
+	grantID := cr.Spec.GrantId
+
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Management().RemoveProjectMember(ctx, &management.RemoveProjectMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+		_, err := r.Zitadel.Management().RemoveProjectGrantMember(ctx, &management.RemoveProjectGrantMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
 			ProjectId: projectID,
+			GrantId:   grantID,
 			UserId:    userID,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
-			return ctrl.Result{}, fmt.Errorf("removing project member: %w", err)
+			return ctrl.Result{}, fmt.Errorf("removing project grant member: %w", err)
 		}
 		if removeFinalizer(&cr) {
 			if err := r.Update(ctx, &cr); err != nil {
@@ -104,8 +107,10 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// Ensure project member exists with correct roles.
-	if err := r.ensureProjectMember(ctx, projectID, userID, cr.Spec.Roles); err != nil {
+	// Ensure project grant member exists with correct roles.
+	if err := r.ensureProjectGrantMember(ctx, projectID, grantID, userID, cr.Spec.Roles); err != nil {
+		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "SyncFailed", err.Error())
+		_ = r.Status().Update(ctx, &cr)
 		return ctrl.Result{}, err
 	}
 
@@ -120,39 +125,15 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	logger.Info("projectmember reconciled", "projectId", projectID, "userId", userID)
+	logger.Info("projectgrantmember reconciled", "projectId", projectID, "grantId", grantID, "userId", userID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
-func (r *ProjectMemberReconciler) resolveUserID(ctx context.Context, cr *zitadelv1alpha2.ProjectMember) (string, error) {
-	if cr.Spec.UserId != "" && cr.Spec.UserRef != nil {
-		return "", fmt.Errorf("userId and userRef are mutually exclusive")
-	}
-	if cr.Spec.UserId == "" && cr.Spec.UserRef == nil {
-		return "", fmt.Errorf("one of userId or userRef is required")
-	}
-	if cr.Spec.UserId != "" {
-		return cr.Spec.UserId, nil
-	}
-
-	ns := cr.Spec.UserRef.Namespace
-	if ns == "" {
-		ns = cr.Namespace
-	}
-	var mu zitadelv1alpha2.MachineUser
-	if err := r.Get(ctx, client.ObjectKey{Name: cr.Spec.UserRef.Name, Namespace: ns}, &mu); err != nil {
-		return "", fmt.Errorf("resolving userRef %s/%s: %w", ns, cr.Spec.UserRef.Name, err)
-	}
-	if mu.Status.UserId == "" {
-		return "", fmt.Errorf("userRef %s/%s not yet ready (no userId in status)", ns, cr.Spec.UserRef.Name)
-	}
-	return mu.Status.UserId, nil
-}
-
-func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, projectID, userID string, desiredRoles []string) error {
+func (r *ProjectGrantMemberReconciler) ensureProjectGrantMember(ctx context.Context, projectID, grantID, userID string, desiredRoles []string) error {
 	// Check if member already exists.
-	listResp, err := r.Zitadel.Management().ListProjectMembers(ctx, &management.ListProjectMembersRequest{ //nolint:staticcheck // no v2 equivalent yet
+	listResp, err := r.Zitadel.Management().ListProjectGrantMembers(ctx, &management.ListProjectGrantMembersRequest{ //nolint:staticcheck // no v2 equivalent yet
 		ProjectId: projectID,
+		GrantId:   grantID,
 		Query:     &object.ListQuery{Limit: 100},
 		Queries: []*member.SearchQuery{
 			{
@@ -165,20 +146,21 @@ func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, proje
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("listing project members: %w", err)
+		return fmt.Errorf("listing project grant members: %w", err)
 	}
 
 	for _, m := range listResp.GetResult() {
 		if m.GetUserId() == userID {
 			// Member exists, update roles if needed.
 			if !rolesEqual(m.GetRoles(), desiredRoles) {
-				_, err := r.Zitadel.Management().UpdateProjectMember(ctx, &management.UpdateProjectMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+				_, err := r.Zitadel.Management().UpdateProjectGrantMember(ctx, &management.UpdateProjectGrantMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
 					ProjectId: projectID,
+					GrantId:   grantID,
 					UserId:    userID,
 					Roles:     desiredRoles,
 				})
 				if err != nil {
-					return fmt.Errorf("updating project member: %w", err)
+					return fmt.Errorf("updating project grant member: %w", err)
 				}
 			}
 			return nil
@@ -186,23 +168,24 @@ func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, proje
 	}
 
 	// Create new member.
-	_, err = r.Zitadel.Management().AddProjectMember(ctx, &management.AddProjectMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+	_, err = r.Zitadel.Management().AddProjectGrantMember(ctx, &management.AddProjectGrantMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
 		ProjectId: projectID,
+		GrantId:   grantID,
 		UserId:    userID,
 		Roles:     desiredRoles,
 	})
 	if err != nil {
-		return fmt.Errorf("adding project member: %w", err)
+		return fmt.Errorf("adding project grant member: %w", err)
 	}
 
 	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ProjectMemberReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ProjectGrantMemberReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&zitadelv1alpha2.ProjectMember{}).
-		Named("projectmember").
+		For(&zitadelv1alpha2.ProjectGrantMember{}).
+		Named("projectgrantmember").
 		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

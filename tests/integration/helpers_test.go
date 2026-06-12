@@ -54,6 +54,14 @@ func isReady(obj client.Object) bool {
 		return o.Status.Ready
 	case *zitadelv1alpha2.OIDCApp:
 		return o.Status.Ready
+	case *zitadelv1alpha2.APIApp:
+		return o.Status.Ready
+	case *zitadelv1alpha2.SAMLApp:
+		return o.Status.Ready
+	case *zitadelv1alpha2.ApplicationKey:
+		return o.Status.Ready
+	case *zitadelv1alpha2.PersonalAccessToken:
+		return o.Status.Ready
 	case *zitadelv1alpha2.MachineUser:
 		return o.Status.Ready
 	case *zitadelv1alpha2.UserGrant:
@@ -63,6 +71,8 @@ func isReady(obj client.Object) bool {
 	case *zitadelv1alpha2.ActionExecution:
 		return o.Status.Ready
 	case *zitadelv1alpha2.ProjectMember:
+		return o.Status.Ready
+	case *zitadelv1alpha2.ProjectGrantMember:
 		return o.Status.Ready
 	case *zitadelv1alpha2.OrgMetadata:
 		return o.Status.Ready

@@ -14,15 +14,20 @@ rules:
     resources:
       - actionexecutions
       - actiontargets
+      - apiapps
+      - applicationkeys
       - domains
       - identityproviders
       - machineusers
       - oidcapps
       - organizations
       - orgmetadata
+      - personalaccesstokens
+      - projectgrantmembers
       - projectgrants
       - projectmembers
       - projects
+      - samlapps
       - usergrants
     verbs:
       - get
@@ -37,15 +42,20 @@ rules:
     resources:
       - actionexecutions/status
       - actiontargets/status
+      - apiapps/status
+      - applicationkeys/status
       - domains/status
       - identityproviders/status
       - machineusers/status
       - oidcapps/status
       - organizations/status
       - orgmetadata/status
+      - personalaccesstokens/status
+      - projectgrantmembers/status
       - projectgrants/status
       - projectmembers/status
       - projects/status
+      - samlapps/status
       - usergrants/status
     verbs:
       - get
@@ -56,15 +66,20 @@ rules:
     resources:
       - actionexecutions/finalizers
       - actiontargets/finalizers
+      - apiapps/finalizers
+      - applicationkeys/finalizers
       - domains/finalizers
       - identityproviders/finalizers
       - machineusers/finalizers
       - oidcapps/finalizers
       - organizations/finalizers
       - orgmetadata/finalizers
+      - personalaccesstokens/finalizers
+      - projectgrantmembers/finalizers
       - projectgrants/finalizers
       - projectmembers/finalizers
       - projects/finalizers
+      - samlapps/finalizers
       - usergrants/finalizers
     verbs:
       - update

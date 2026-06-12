@@ -233,6 +233,51 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	if err := (&controller.APIAppReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup APIAppReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.SAMLAppReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup SAMLAppReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.ApplicationKeyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ApplicationKeyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.PersonalAccessTokenReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup PersonalAccessTokenReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.ProjectGrantMemberReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ProjectGrantMemberReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	// Start manager.
 	var mgrCtx context.Context
 	mgrCtx, mgrCancel = context.WithCancel(ctx)

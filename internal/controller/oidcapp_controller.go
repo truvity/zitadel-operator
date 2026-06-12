@@ -48,6 +48,8 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		if isRefNotReady(err) {
 			logger.Info("waiting for project ref to become ready", "error", err)
+			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "ProjectNotReady", err.Error())
+			_ = r.Status().Update(ctx, &cr)
 			return ctrl.Result{RequeueAfter: requeueOnError}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
@@ -120,6 +122,7 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		cr.Status.OrganizationId = inheritedOrgID
 		cr.Status.Ready = true
 		cr.Status.LastSyncTime = &now
+		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
 		if err := r.Status().Update(ctx, &cr); err != nil {
 			return ctrl.Result{}, err
 		}
