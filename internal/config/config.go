@@ -47,7 +47,7 @@ func DefaultConfigPath() string {
 
 // Load reads and parses the config file at the given path.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // config path from trusted --config flag
 	if err != nil {
 		return nil, fmt.Errorf("read config %q: %w", path, err)
 	}

@@ -40,8 +40,8 @@ tidy:
 clean:
     rm -rf bin/ dist/ coverage.out
 
-# Run all checks (build + test + lint + vuln)
-check: build test lint vuln
+# Run all checks (build + test + lint + vuln + verify generated files)
+check: build test lint vuln verify-generate
 
 # Build a snapshot release locally (no push, no tag)
 snapshot:
