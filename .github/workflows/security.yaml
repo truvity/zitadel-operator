@@ -16,9 +16,16 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: golang/govulncheck-action@v1
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: jetify-com/devbox-install-action@v0.14.0
         with:
-          go-version-file: go.mod
+          enable-cache: true
+          skip-nix-installation: true
+
+      - run: devbox run -- govulncheck ./...
 
   trivy:
     runs-on: ubuntu-latest
