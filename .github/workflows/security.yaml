@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@v16
 
       - uses: jetify-com/devbox-install-action@v0.14.0
         with:
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@0.32.0
         with:
           scan-type: fs
           scan-ref: .
