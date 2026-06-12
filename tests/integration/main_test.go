@@ -22,21 +22,14 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
+	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 	"github.com/zalando/go-keyring"
 )
 
-type testConfig struct {
-	Domain   string `yaml:"domain"`
-	Port     string `yaml:"port"`
-	Insecure bool   `yaml:"insecure"`
-}
-
 var (
 	zitadelClient *zitadel.Client
-	cfg           testConfig
+	cfg           *config.Config
 )
 
 func TestMain(m *testing.M) {
@@ -58,34 +51,13 @@ func TestMain(m *testing.M) {
 		slog.Info("auto-detected KUBEBUILDER_ASSETS", slog.String("path", path))
 	}
 
-	// Load config from XDG path.
-	home, err := os.UserHomeDir()
+	// Load config.
+	configPath := config.DefaultConfigPath()
+	var err error
+	cfg, err = config.Load(configPath)
 	if err != nil {
-		slog.Error("failed to get home dir", slog.Any("error", err))
+		slog.Error("failed to load config", slog.Any("error", err))
 		os.Exit(1)
-	}
-
-	configPath := home + "/.config/zitadel-operator/config.yaml"
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		slog.Error("failed to read config", slog.String("path", configPath), slog.Any("error", err))
-		slog.Error("create ~/.config/zitadel-operator/config.yaml with domain, port, insecure")
-		os.Exit(1)
-	}
-
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		slog.Error("failed to parse config", slog.Any("error", err))
-		os.Exit(1)
-	}
-
-	if cfg.Domain == "" {
-		slog.Error("config.domain is required")
-		os.Exit(1)
-	}
-
-	if cfg.Port == "" {
-		cfg.Port = "443"
 	}
 
 	// Load JWT key from system keyring via go-keyring.
