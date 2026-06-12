@@ -8,6 +8,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
@@ -39,6 +40,13 @@ func removeFinalizer(obj client.Object) bool {
 		return true
 	}
 	return false
+}
+
+// generationChangedPredicate returns a predicate that filters out status-only
+// updates. Only spec changes (generation bump) and deletion trigger reconciliation.
+// This prevents hot-loops where status writes trigger re-reconciliation.
+func generationChangedPredicate() predicate.Predicate {
+	return predicate.GenerationChangedPredicate{}
 }
 
 // resolveUserIDByEmail resolves a user email address to a Zitadel user ID using the v2 User service.

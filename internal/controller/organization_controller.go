@@ -146,5 +146,7 @@ func (r *OrganizationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.Organization{}).
 		Named("organization").
+		WithEventFilter(generationChangedPredicate()).
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

@@ -161,5 +161,7 @@ func (r *IdentityProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.IdentityProvider{}).
 		Named("identityprovider").
+		WithEventFilter(generationChangedPredicate()).
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

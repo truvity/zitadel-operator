@@ -124,5 +124,7 @@ func (r *OrgMemberReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.OrgMember{}).
 		Named("orgmember").
+		WithEventFilter(generationChangedPredicate()).
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }
