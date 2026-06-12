@@ -1,0 +1,20 @@
+{{- if and .Values.rbac.create .Values.rbac.namespaces -}}
+{{- range .Values.rbac.namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "zitadel-operator.fullname" $ }}
+  namespace: {{ . }}
+  labels:
+    {{- include "zitadel-operator.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "zitadel-operator.fullname" $ }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "zitadel-operator.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}

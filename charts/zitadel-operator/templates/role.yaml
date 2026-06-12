@@ -1,10 +1,13 @@
-{{- if and .Values.rbac.create (not .Values.rbac.namespaces) -}}
+{{- if and .Values.rbac.create .Values.rbac.namespaces -}}
+{{- range .Values.rbac.namespaces }}
+---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
-  name: {{ include "zitadel-operator.fullname" . }}
+  name: {{ include "zitadel-operator.fullname" $ }}
+  namespace: {{ . }}
   labels:
-    {{- include "zitadel-operator.labels" . | nindent 4 }}
+    {{- include "zitadel-operator.labels" $ | nindent 4 }}
 rules:
   - apiGroups:
       - zitadel.truvity.io
@@ -71,4 +74,5 @@ rules:
     verbs:
       - create
       - patch
+{{- end }}
 {{- end }}
