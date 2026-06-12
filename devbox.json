@@ -9,7 +9,8 @@
     "just@latest",
     "ko@latest",
     "kubernetes-controller-tools@latest",
-    "kubernetes-helm@latest"
+    "kubernetes-helm@latest",
+    "setup-envtest@latest"
   ],
   "shell": {
     "init_hook": [],
