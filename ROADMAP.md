@@ -1,55 +1,58 @@
 # Zitadel Operator Roadmap
 
-## Current: v1.0.0-alpha1 (v1alpha2)
+## Current: v0.10.0 (v1alpha2)
 
-### Implemented Resources (v1alpha2 — all namespaced)
-- Organization (with displayName override)
-- Project (with organizationRef/organizationId, cross-namespace ref)
-- OIDCApp (with projectRef/projectId, Secret output, full drift detection)
-- MachineUser (with organizationRef/organizationId, key generation)
+### Implemented Resources (12 CRDs)
+
+#### Project-Level (PROJECT_OWNER)
+- OIDCApp — OIDC application with Secret output (confidential/public, drift detection)
+- ProjectMember — Assign user roles on a project
+
+#### Organization-Level (ORG_OWNER)
+- Organization — Create/manage organizations
+- Project — Create/manage projects with role sync
+- MachineUser — Service accounts with JWT key generation
+- UserGrant — Assign project roles to users
+- ProjectGrant — Share a project with another organization
+- OrgMetadata — Key-value metadata on the org
+- Domain — Register org domain for domain discovery
+- IdentityProvider — Configure generic OIDC identity provider
+
+#### Instance-Level (IAM_OWNER)
+- ActionTarget — Webhook targets for Actions v2
+- ActionExecution — Bind targets to trigger conditions
 
 ### Architecture
-- Config file (`--config`) replaces CLI flags
-- `watchNamespaces` support via K8s cache scoping
-- Namespace-based multi-operator isolation (Role/RoleBinding per namespace)
+- Config file (`--config`) with single YAML
+- `watchNamespaces` for namespace isolation
+- Helm chart with ConfigMap + Secret volume mounts
+- Namespace-scoped RBAC (Role/RoleBinding per namespace)
 - `GenerationChangedPredicate` on all controllers (no hot-loops)
-- Conditional status updates (no write if unchanged)
-- Graceful retry for transient ref-not-ready errors (RequeueAfter: 10s)
+- Conditional status updates
+- Graceful retry for transient ref-not-ready errors (10s requeue)
 - Finalizer-based cleanup on deletion
 
-### Integration Tests (9 scenarios)
-- Organization lifecycle (create, verify, delete with finalizer)
-- Organization with custom display name
-- Project with default org (config.defaultOrganizationId)
-- Project with organizationRef (cross-resource resolution)
-- Project with explicit organizationId
-- OIDCApp with projectRef (full lifecycle + Secret)
-- OIDCApp drift detection (redirect URIs, token type, role assertions)
-- MachineUser lifecycle (create, key generation, Secret)
-- MachineUser with organizationRef
-
----
+### Integration Tests (18 scenarios)
+All tests run against a real Zitadel Cloud instance via envtest.
 
 ## Future
 
-### Extended Resources (INF-368)
-- [ ] IdentityProvider (org-scoped)
-- [ ] LoginPolicy (org-scoped)
-- [ ] UserGrant
-- [ ] ActionTarget + ActionExecution (Actions v2)
-- [ ] EmailProvider + SmsProvider
+### Additional Resources
+- [ ] LoginPolicy (org-scoped) — complex field set, low change frequency
+- [ ] PasswordComplexityPolicy (org-scoped)
+- [ ] LockoutPolicy (org-scoped)
+- [ ] APIApp — API application type
+- [ ] HumanUser — human user management
 
 ### Production Hardening
-- [ ] Structured conditions on status (Ready, Synced, Error)
+- [ ] Structured status conditions (Ready/Synced/Error with reason codes)
+- [ ] Prometheus metrics (custom reconcile counters, Zitadel API latency)
 - [ ] Exponential backoff for persistent Zitadel API errors
-- [ ] Debounce rapid spec updates
-- [ ] Metrics (reconcile duration, error rate, Zitadel API latency)
 
-### Ecosystem Integration
-- [ ] Examples: Actions v2 wiring with zitadel-rbac-mapper
-- [ ] Examples: MachineUser for CI/CD bots
-
----
+### Not Planned (instance-level, Zitadel Cloud limitation)
+- DefaultLoginPolicy — requires System API
+- DefaultDomainPolicy — requires System API
+- Instance-level IdP (Google/GitHub) — requires System API
 
 ## Design Principles
 
@@ -58,11 +61,11 @@
 3. **Operator-per-instance** — bound to one Zitadel instance via config file
 4. **Namespace-based isolation** — multiple operators via namespace scoping + K8s RBAC
 5. **No CRD for connection** — instance config is deployment config, not a reconciled resource
-6. **Terraform parity** — resource coverage matches the Terraform provider
+6. **Terraform provider parity** — resource coverage matches the Zitadel Terraform provider for org/project scope
 
 ## Testing Model
 
-| Package | Purpose | Deps | Command |
-|---------|---------|------|---------|
-| `internal/config/` | Config loader unit tests | None | `go test ./internal/config/...` |
-| `tests/integration/` | Full reconcile loop (envtest + real Zitadel) | Docker-free (envtest), `~/.config/zitadel-operator/config.yaml` | `go test -tags=integration ./tests/integration/...` |
+| Package | Purpose | Command |
+|---------|---------|---------|
+| `internal/config/` | Config loader unit tests | `go test ./internal/config/...` |
+| `tests/integration/` | Full reconcile loop (envtest + real Zitadel) | `go test -tags=integration ./tests/integration/...` |
