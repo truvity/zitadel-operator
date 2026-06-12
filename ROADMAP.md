@@ -1,17 +1,22 @@
 # Zitadel Operator Roadmap
 
-## Current: v0.10.0 (v1alpha2)
+## Current: v0.11.0 (v1alpha2)
 
-### Implemented Resources (12 CRDs)
+### Implemented Resources (17 CRDs)
 
 #### Project-Level (PROJECT_OWNER)
 - OIDCApp — OIDC application with Secret output (confidential/public, drift detection)
+- APIApp — API/M2M application with Secret output (basic/private_key_jwt)
+- SAMLApp — SAML application (metadata XML or URL)
+- ApplicationKey — JWT key for applications (Secret output)
 - ProjectMember — Assign user roles on a project
+- ProjectGrantMember — Assign user roles on a project grant
 
 #### Organization-Level (ORG_OWNER)
 - Organization — Create/manage organizations
 - Project — Create/manage projects with role sync
 - MachineUser — Service accounts with JWT key generation
+- PersonalAccessToken — PAT for machine users (Secret output)
 - UserGrant — Assign project roles to users
 - ProjectGrant — Share a project with another organization
 - OrgMetadata — Key-value metadata on the org
@@ -29,11 +34,13 @@
 - Namespace-scoped RBAC (Role/RoleBinding per namespace)
 - `GenerationChangedPredicate` on all controllers (no hot-loops)
 - Conditional status updates
+- Structured status conditions (`Ready=True/False` with reason codes)
 - Graceful retry for transient ref-not-ready errors (10s requeue)
 - Finalizer-based cleanup on deletion
 
-### Integration Tests (18 scenarios)
+### Integration Tests (27 scenarios)
 All tests run against a real Zitadel Cloud instance via envtest.
+Includes negative cases, condition verification, idempotent reconcile, and edge cases.
 
 ## Future
 
@@ -41,11 +48,10 @@ All tests run against a real Zitadel Cloud instance via envtest.
 - [ ] LoginPolicy (org-scoped) — complex field set, low change frequency
 - [ ] PasswordComplexityPolicy (org-scoped)
 - [ ] LockoutPolicy (org-scoped)
-- [ ] APIApp — API application type
 - [ ] HumanUser — human user management
+- [ ] OrgMember — assign org-level roles
 
 ### Production Hardening
-- [ ] Structured status conditions (Ready/Synced/Error with reason codes)
 - [ ] Prometheus metrics (custom reconcile counters, Zitadel API latency)
 - [ ] Exponential backoff for persistent Zitadel API errors
 
@@ -65,7 +71,7 @@ All tests run against a real Zitadel Cloud instance via envtest.
 
 ## Testing Model
 
-| Package | Purpose | Command |
-|---------|---------|---------|
-| `internal/config/` | Config loader unit tests | `go test ./internal/config/...` |
+| Package              | Purpose                                      | Command                                             |
+| -------------------- | -------------------------------------------- | --------------------------------------------------- |
+| `internal/config/`   | Config loader unit tests                     | `go test ./internal/config/...`                     |
 | `tests/integration/` | Full reconcile loop (envtest + real Zitadel) | `go test -tags=integration ./tests/integration/...` |
