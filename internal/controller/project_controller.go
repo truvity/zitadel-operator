@@ -75,13 +75,16 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	now := metav1.NewTime(time.Now())
-	cr.Status.ProjectId = projectID
-	cr.Status.Ready = true
-	cr.Status.LastSyncTime = &now
-	if err := r.Status().Update(ctx, &cr); err != nil {
-		return ctrl.Result{}, err
+	// Update status (only if values changed — avoids triggering unnecessary reconciles).
+	statusChanged := cr.Status.ProjectId != projectID || !cr.Status.Ready
+	if statusChanged {
+		cr.Status.ProjectId = projectID
+		cr.Status.Ready = true
+		now := metav1.NewTime(time.Now())
+		cr.Status.LastSyncTime = &now
+		if err := r.Status().Update(ctx, &cr); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	logger.Info("project reconciled", "projectId", projectID)
@@ -239,5 +242,6 @@ func (r *ProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.Project{}).
 		Named("project").
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

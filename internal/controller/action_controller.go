@@ -161,5 +161,7 @@ func (r *ActionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.Action{}).
 		Named("action").
+		WithEventFilter(generationChangedPredicate()).
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

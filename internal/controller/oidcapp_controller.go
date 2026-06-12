@@ -110,13 +110,16 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Update status.
-	now := metav1.NewTime(time.Now())
-	cr.Status.ClientId = clientID
-	cr.Status.Ready = true
-	cr.Status.LastSyncTime = &now
-	if err := r.Status().Update(ctx, &cr); err != nil {
-		return ctrl.Result{}, err
+	// Update status (only if values changed — avoids triggering unnecessary reconciles).
+	statusChanged := cr.Status.ClientId != clientID || !cr.Status.Ready
+	if statusChanged {
+		now := metav1.NewTime(time.Now())
+		cr.Status.ClientId = clientID
+		cr.Status.Ready = true
+		cr.Status.LastSyncTime = &now
+		if err := r.Status().Update(ctx, &cr); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	logger.Info("oidcapp reconciled", "clientId", clientID)
@@ -244,10 +247,33 @@ func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, pr
 		return nil
 	}
 
-	// Check if redirect URIs changed.
-	if reflect.DeepEqual(oidcConfig.GetRedirectUris(), cr.Spec.RedirectUris) {
+	// Detect drift across all mutable fields.
+	redirectsChanged := !reflect.DeepEqual(oidcConfig.GetRedirectUris(), cr.Spec.RedirectUris)
+	postLogoutChanged := !reflect.DeepEqual(oidcConfig.GetPostLogoutRedirectUris(), cr.Spec.PostLogoutRedirectUris)
+
+	// Access token type drift.
+	desiredAccessTokenType := applicationv2.OIDCTokenType_OIDC_TOKEN_TYPE_BEARER
+	if cr.Spec.AccessTokenType == "jwt" {
+		desiredAccessTokenType = applicationv2.OIDCTokenType_OIDC_TOKEN_TYPE_JWT
+	}
+	accessTokenTypeChanged := oidcConfig.GetAccessTokenType() != desiredAccessTokenType
+
+	// Role assertion drift.
+	accessTokenRoleChanged := oidcConfig.GetAccessTokenRoleAssertion() != cr.Spec.AccessTokenRoleAssertion
+	idTokenRoleChanged := oidcConfig.GetIdTokenRoleAssertion() != cr.Spec.IdTokenRoleAssertion
+
+	if !redirectsChanged && !postLogoutChanged && !accessTokenTypeChanged && !accessTokenRoleChanged && !idTokenRoleChanged {
 		return nil
 	}
+
+	logger := log.FromContext(ctx)
+	logger.Info("drift detected, updating OIDC app",
+		"redirectsChanged", redirectsChanged,
+		"postLogoutChanged", postLogoutChanged,
+		"accessTokenTypeChanged", accessTokenTypeChanged,
+		"accessTokenRoleChanged", accessTokenRoleChanged,
+		"idTokenRoleChanged", idTokenRoleChanged,
+	)
 
 	_, err := r.Zitadel.Application().UpdateApplication(ctx, &applicationv2.UpdateApplicationRequest{
 		ApplicationId: appID,
@@ -255,7 +281,11 @@ func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, pr
 		Name:          cr.Name,
 		ApplicationType: &applicationv2.UpdateApplicationRequest_OidcConfiguration{
 			OidcConfiguration: &applicationv2.UpdateOIDCApplicationConfigurationRequest{
-				RedirectUris: cr.Spec.RedirectUris,
+				RedirectUris:             cr.Spec.RedirectUris,
+				PostLogoutRedirectUris:   cr.Spec.PostLogoutRedirectUris,
+				AccessTokenType:          &desiredAccessTokenType,
+				AccessTokenRoleAssertion: &cr.Spec.AccessTokenRoleAssertion,
+				IdTokenRoleAssertion:     &cr.Spec.IdTokenRoleAssertion,
 			},
 		},
 	})
@@ -360,5 +390,6 @@ func (r *OIDCAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.OIDCApp{}).
 		Named("oidcapp").
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

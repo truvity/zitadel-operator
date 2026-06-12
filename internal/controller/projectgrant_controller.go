@@ -80,5 +80,7 @@ func (r *ProjectGrantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.ProjectGrant{}).
 		Named("projectgrant").
+		WithEventFilter(generationChangedPredicate()).
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

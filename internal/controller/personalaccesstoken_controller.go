@@ -163,5 +163,7 @@ func (r *PersonalAccessTokenReconciler) SetupWithManager(mgr ctrl.Manager) error
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.PersonalAccessToken{}).
 		Named("personalaccesstoken").
+		WithEventFilter(generationChangedPredicate()).
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

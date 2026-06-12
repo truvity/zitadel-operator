@@ -39,3 +39,26 @@ release:
   github:
     owner: truvity
     name: zitadel-operator
+  header: |
+    ## Zitadel Operator {{ .Tag }}
+
+    Docker image: `ghcr.io/truvity/zitadel-operator:{{ .Version }}`
+    Helm chart: `oci://ghcr.io/truvity/charts/zitadel-operator:{{ .Version }}`
+
+changelog:
+  use: github
+  groups:
+    - title: Features
+      regexp: '^feat'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^fix'
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"

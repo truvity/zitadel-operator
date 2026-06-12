@@ -95,5 +95,7 @@ func (r *PasswordComplexityPolicyReconciler) SetupWithManager(mgr ctrl.Manager) 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&zitadelv1alpha1.PasswordComplexityPolicy{}).
 		Named("passwordcomplexitypolicy").
+		WithEventFilter(generationChangedPredicate()).
+		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

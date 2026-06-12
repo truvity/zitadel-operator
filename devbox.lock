@@ -2,8 +2,8 @@
   "lockfile_version": "1",
   "packages": {
     "github:NixOS/nixpkgs/nixpkgs-unstable": {
-      "last_modified": "2026-05-31T16:57:23Z",
-      "resolved": "github:NixOS/nixpkgs/3109eaae18e09d0b8aef23dc2579e7d94b8d4b4e?lastModified=1780246643"
+      "last_modified": "2026-06-12T02:02:01Z",
+      "resolved": "github:NixOS/nixpkgs/173d0ad7a974f8543a9ab01d2271b2e290341b33?lastModified=1781229721"
     },
     "go@latest": {
       "last_modified": "2026-05-21T08:15:18Z",
@@ -518,6 +518,54 @@
             }
           ],
           "store_path": "/nix/store/89r6lacw4snczana92k6sm8cxw61iq9k-kubernetes-helm-3.20.2"
+        }
+      }
+    },
+    "setup-envtest@latest": {
+      "last_modified": "2026-05-21T08:15:18Z",
+      "resolved": "github:NixOS/nixpkgs/4a29d733e8a7d5b824c3d8c958a946a9867b3eb2#setup-envtest",
+      "source": "devbox-search",
+      "version": "0.22.3",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/l4ii75zh8a6hwz81fr34y3js8r070sdm-setup-envtest-0.22.3",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/l4ii75zh8a6hwz81fr34y3js8r070sdm-setup-envtest-0.22.3"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/gmxwvxlx58lm1j08c1kbfi80y8y6a1dl-setup-envtest-0.22.3",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/gmxwvxlx58lm1j08c1kbfi80y8y6a1dl-setup-envtest-0.22.3"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/dwc8n2ab4x2s543cybjy60yxhc6h11ww-setup-envtest-0.22.3",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/dwc8n2ab4x2s543cybjy60yxhc6h11ww-setup-envtest-0.22.3"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/i1clqwcy5d0cy4l2iyr141nkklf72737-setup-envtest-0.22.3",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/i1clqwcy5d0cy4l2iyr141nkklf72737-setup-envtest-0.22.3"
         }
       }
     }

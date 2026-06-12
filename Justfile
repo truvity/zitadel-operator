@@ -14,6 +14,10 @@ build: generate
 test:
     go test ./... -coverprofile=coverage.out
 
+# Run integration tests (requires real Zitadel + devbox shell)
+test-integration:
+    go test -tags=integration -v ./tests/integration/... -count=1 -timeout=120s
+
 # Run linters
 lint:
     golangci-lint run ./...
@@ -36,15 +40,8 @@ tidy:
 clean:
     rm -rf bin/ dist/ coverage.out
 
-# Run all checks (generate + build + test + lint + vuln)
-check: generate build test lint vuln
-
-# Create a release tag and push (triggers GitHub Actions release workflow)
-release version:
-    @echo "Tagging v{{version}} and pushing..."
-    git tag -a "v{{version}}" -m "Release v{{version}}"
-    git push origin "v{{version}}"
-    @echo "Release v{{version}} triggered. Watch: https://github.com/truvity/zitadel-operator/actions"
+# Run all checks (build + test + lint + vuln)
+check: build test lint vuln
 
 # Build a snapshot release locally (no push, no tag)
 snapshot:
@@ -54,10 +51,3 @@ snapshot:
 helm-package:
     helm package charts/zitadel-operator --destination dist/
     helm package charts/zitadel-operator-crds --destination dist/
-
-# Push Helm charts to GHCR (requires: helm registry login ghcr.io)
-helm-push version:
-    helm package charts/zitadel-operator --version {{version}} --app-version {{version}} --destination dist/
-    helm package charts/zitadel-operator-crds --version {{version}} --app-version {{version}} --destination dist/
-    helm push dist/zitadel-operator-{{version}}.tgz oci://ghcr.io/truvity/charts
-    helm push dist/zitadel-operator-crds-{{version}}.tgz oci://ghcr.io/truvity/charts

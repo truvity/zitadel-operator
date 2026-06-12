@@ -13,29 +13,33 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: jetify-com/devbox-install-action@v0.15.0
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: jetify-com/devbox-install-action@v0.14.0
         with:
           enable-cache: true
+          skip-nix-installation: true
 
-      - name: Login to GHCR (ko)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | devbox run ko login ghcr.io -u ${{ github.actor }} --password-stdin
+      - uses: ko-build/setup-ko@v0.9
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: GoReleaser
+        run: devbox run -- goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KO_DOCKER_REPO: ghcr.io/truvity
 
-      - name: Run GoReleaser
-        run: devbox run goreleaser release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KO_DOCKER_REPO: ghcr.io/truvity/zitadel-operator
-
-      - name: Login to GHCR (helm)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | devbox run helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push Helm charts
-        run: devbox run just helm-push ${GITHUB_REF_NAME#v}
+      - name: Package and push Helm charts
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | devbox run -- helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          devbox run -- helm package charts/zitadel-operator --version "$VERSION" --app-version "$VERSION" --destination dist/
+          devbox run -- helm package charts/zitadel-operator-crds --version "$VERSION" --app-version "$VERSION" --destination dist/
+          devbox run -- helm push dist/zitadel-operator-${VERSION}.tgz oci://ghcr.io/truvity/charts
+          devbox run -- helm push dist/zitadel-operator-crds-${VERSION}.tgz oci://ghcr.io/truvity/charts
