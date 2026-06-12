@@ -1,0 +1,194 @@
+package controller
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/zitadel"
+
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+)
+
+// ProjectGrantReconciler reconciles a ProjectGrant object.
+type ProjectGrantReconciler struct {
+	client.Client
+	Zitadel *zitadel.Client
+	Config  *config.Config
+}
+
+// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectgrants,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectgrants/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectgrants/finalizers,verbs=update
+
+func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	var cr zitadelv1alpha2.ProjectGrant
+	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Resolve organization (the owning org).
+	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	if err != nil {
+		if isRefNotReady(err) {
+			logger.Info("waiting for organization ref to become ready", "error", err)
+			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
+	}
+
+	// Set org context for Management API calls.
+	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
+
+	// Resolve project ID.
+	projectID, _, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
+	if err != nil {
+		if isRefNotReady(err) {
+			logger.Info("waiting for project ref to become ready", "error", err)
+			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
+	}
+
+	// Resolve granted org ID.
+	grantedOrgID, err := r.resolveGrantedOrgID(ctx, &cr)
+	if err != nil {
+		if isRefNotReady(err) {
+			logger.Info("waiting for granted org ref to become ready", "error", err)
+			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("resolving granted org: %w", err)
+	}
+
+	// Handle deletion.
+	if !cr.DeletionTimestamp.IsZero() {
+		if cr.Status.GrantId != "" {
+			_, err := r.Zitadel.Management().RemoveProjectGrant(ctx, &management.RemoveProjectGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
+				ProjectId: projectID,
+				GrantId:   cr.Status.GrantId,
+			})
+			if err != nil && status.Code(err) != codes.NotFound {
+				return ctrl.Result{}, fmt.Errorf("removing project grant: %w", err)
+			}
+		}
+		if removeFinalizer(&cr) {
+			if err := r.Update(ctx, &cr); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer.
+	if addFinalizer(&cr) {
+		if err := r.Update(ctx, &cr); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Ensure project grant exists.
+	grantID, err := r.ensureProjectGrant(ctx, projectID, grantedOrgID, cr.Spec.RoleKeys, cr.Status.GrantId)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Update status.
+	if cr.Status.GrantId != grantID || !cr.Status.Ready {
+		now := metav1.NewTime(time.Now())
+		cr.Status.GrantId = grantID
+		cr.Status.Ready = true
+		cr.Status.LastSyncTime = &now
+		if err := r.Status().Update(ctx, &cr); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	logger.Info("projectgrant reconciled", "grantId", grantID, "projectId", projectID, "grantedOrgId", grantedOrgID)
+	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *ProjectGrantReconciler) resolveGrantedOrgID(ctx context.Context, cr *zitadelv1alpha2.ProjectGrant) (string, error) {
+	if cr.Spec.GrantedOrgRef != nil && cr.Spec.GrantedOrgId != "" {
+		return "", fmt.Errorf("grantedOrgRef and grantedOrgId are mutually exclusive")
+	}
+	if cr.Spec.GrantedOrgRef == nil && cr.Spec.GrantedOrgId == "" {
+		return "", fmt.Errorf("one of grantedOrgRef or grantedOrgId is required")
+	}
+	if cr.Spec.GrantedOrgId != "" {
+		return cr.Spec.GrantedOrgId, nil
+	}
+
+	ns := cr.Spec.GrantedOrgRef.Namespace
+	if ns == "" {
+		ns = cr.Namespace
+	}
+	var org zitadelv1alpha2.Organization
+	if err := r.Get(ctx, client.ObjectKey{Name: cr.Spec.GrantedOrgRef.Name, Namespace: ns}, &org); err != nil {
+		return "", fmt.Errorf("resolving grantedOrgRef %s/%s: %w", ns, cr.Spec.GrantedOrgRef.Name, err)
+	}
+	if org.Status.OrganizationId == "" {
+		return "", fmt.Errorf("grantedOrgRef %s/%s not yet ready (no organizationId in status)", ns, cr.Spec.GrantedOrgRef.Name)
+	}
+	return org.Status.OrganizationId, nil
+}
+
+func (r *ProjectGrantReconciler) ensureProjectGrant(ctx context.Context, projectID, grantedOrgID string, desiredRoles []string, existingGrantID string) (string, error) {
+	// If we have an existing grant ID, check it.
+	if existingGrantID != "" {
+		resp, err := r.Zitadel.Management().GetProjectGrantByID(ctx, &management.GetProjectGrantByIDRequest{ //nolint:staticcheck // no v2 equivalent yet
+			ProjectId: projectID,
+			GrantId:   existingGrantID,
+		})
+		if err == nil {
+			// Grant exists, check if roles need updating.
+			if !rolesEqual(resp.GetProjectGrant().GetGrantedRoleKeys(), desiredRoles) {
+				_, err := r.Zitadel.Management().UpdateProjectGrant(ctx, &management.UpdateProjectGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
+					ProjectId: projectID,
+					GrantId:   existingGrantID,
+					RoleKeys:  desiredRoles,
+				})
+				if err != nil {
+					return "", fmt.Errorf("updating project grant: %w", err)
+				}
+			}
+			return existingGrantID, nil
+		}
+		if status.Code(err) != codes.NotFound {
+			return "", fmt.Errorf("getting project grant: %w", err)
+		}
+		// Grant was deleted externally, recreate.
+	}
+
+	// Create new grant.
+	addResp, err := r.Zitadel.Management().AddProjectGrant(ctx, &management.AddProjectGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
+		ProjectId:    projectID,
+		GrantedOrgId: grantedOrgID,
+		RoleKeys:     desiredRoles,
+	})
+	if err != nil {
+		return "", fmt.Errorf("adding project grant: %w", err)
+	}
+
+	return addResp.GetGrantId(), nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *ProjectGrantReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&zitadelv1alpha2.ProjectGrant{}).
+		Named("projectgrant").
+		WithEventFilter(generationChangedPredicate()).
+		Complete(r)
+}

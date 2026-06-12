@@ -14,9 +14,14 @@ rules:
     resources:
       - actionexecutions
       - actiontargets
+      - domains
+      - identityproviders
       - machineusers
       - oidcapps
       - organizations
+      - orgmetadata
+      - projectgrants
+      - projectmembers
       - projects
       - usergrants
     verbs:
@@ -32,9 +37,14 @@ rules:
     resources:
       - actionexecutions/status
       - actiontargets/status
+      - domains/status
+      - identityproviders/status
       - machineusers/status
       - oidcapps/status
       - organizations/status
+      - orgmetadata/status
+      - projectgrants/status
+      - projectmembers/status
       - projects/status
       - usergrants/status
     verbs:
@@ -46,9 +56,14 @@ rules:
     resources:
       - actionexecutions/finalizers
       - actiontargets/finalizers
+      - domains/finalizers
+      - identityproviders/finalizers
       - machineusers/finalizers
       - oidcapps/finalizers
       - organizations/finalizers
+      - orgmetadata/finalizers
+      - projectgrants/finalizers
+      - projectmembers/finalizers
       - projects/finalizers
       - usergrants/finalizers
     verbs:

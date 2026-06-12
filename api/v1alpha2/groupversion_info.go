@@ -29,6 +29,11 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&UserGrant{}, &UserGrantList{},
 		&ActionTarget{}, &ActionTargetList{},
 		&ActionExecution{}, &ActionExecutionList{},
+		&ProjectMember{}, &ProjectMemberList{},
+		&OrgMetadata{}, &OrgMetadataList{},
+		&Domain{}, &DomainList{},
+		&ProjectGrant{}, &ProjectGrantList{},
+		&IdentityProvider{}, &IdentityProviderList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil

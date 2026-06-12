@@ -188,6 +188,51 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	if err := (&controller.ProjectMemberReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ProjectMemberReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.OrgMetadataReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup OrgMetadataReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DomainReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DomainReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.ProjectGrantReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ProjectGrantReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.IdentityProviderReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup IdentityProviderReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	// Start manager.
 	var mgrCtx context.Context
 	mgrCtx, mgrCancel = context.WithCancel(ctx)
