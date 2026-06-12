@@ -163,6 +163,31 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	if err := (&controller.UserGrantReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup UserGrantReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.ActionTargetReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ActionTargetReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.ActionExecutionReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ActionExecutionReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	// Start manager.
 	var mgrCtx context.Context
 	mgrCtx, mgrCancel = context.WithCancel(ctx)

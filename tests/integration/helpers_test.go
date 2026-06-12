@@ -56,6 +56,12 @@ func isReady(obj client.Object) bool {
 		return o.Status.Ready
 	case *zitadelv1alpha2.MachineUser:
 		return o.Status.Ready
+	case *zitadelv1alpha2.UserGrant:
+		return o.Status.Ready
+	case *zitadelv1alpha2.ActionTarget:
+		return o.Status.Ready
+	case *zitadelv1alpha2.ActionExecution:
+		return o.Status.Ready
 	default:
 		return false
 	}

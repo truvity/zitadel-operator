@@ -151,6 +151,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controller.UserGrantReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "UserGrant")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ActionTargetReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ActionTarget")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ActionExecutionReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ActionExecution")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
