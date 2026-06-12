@@ -16,7 +16,7 @@ test:
 
 # Run integration tests (requires real Zitadel + devbox shell)
 test-integration:
-    KUBEBUILDER_ASSETS=$(setup-envtest use --print path -p path) go test -tags=integration -v ./tests/integration/... -count=1 -timeout=90s
+    go test -tags=integration -v ./tests/integration/... -count=1 -timeout=120s
 
 # Run linters
 lint:

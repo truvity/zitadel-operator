@@ -18,6 +18,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -39,6 +41,22 @@ var (
 
 func TestMain(m *testing.M) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	// Auto-detect KUBEBUILDER_ASSETS if not set (requires setup-envtest in PATH via devbox).
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		out, err := exec.Command("setup-envtest", "use", "--print", "path", "-p", "path").Output()
+		if err != nil {
+			slog.Error("KUBEBUILDER_ASSETS not set and setup-envtest failed",
+				slog.Any("error", err),
+				slog.String("hint", "run 'devbox shell' to get setup-envtest in PATH"),
+			)
+			os.Exit(1)
+		}
+
+		path := strings.TrimSpace(string(out))
+		os.Setenv("KUBEBUILDER_ASSETS", path)
+		slog.Info("auto-detected KUBEBUILDER_ASSETS", slog.String("path", path))
+	}
 
 	// Load config from XDG path.
 	home, err := os.UserHomeDir()
