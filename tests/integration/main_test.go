@@ -5,6 +5,9 @@
 //
 // Prerequisites:
 //   - JWT key stored in system keyring: service="zitadel-operator", username="jwt-key"
+//     Store:  secret-tool store --label='zitadel-operator jwt-key' service zitadel-operator username jwt-key < /path/to/key.json
+//     Clean:  rm /path/to/key.json  # delete the file after storing to keyring
+//     Verify: secret-tool lookup service zitadel-operator username jwt-key | head -c 20
 //   - Config at ~/.config/zitadel-operator/config.yaml with domain, port, insecure
 //
 // Run: go test -tags=integration -v ./tests/integration/... -count=1
