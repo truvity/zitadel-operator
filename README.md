@@ -242,6 +242,12 @@ just generate
 secret-tool store --label='zitadel-operator jwt-key' \
   service zitadel-operator username jwt-key < /path/to/key.json
 
+# Delete the key file after storing (don't leave secrets on disk)
+rm /path/to/key.json
+
+# Verify it's stored correctly
+secret-tool lookup service zitadel-operator username jwt-key | head -c 20
+
 # Create config
 cat > ~/.config/zitadel-operator/config.yaml << EOF
 domain: your-instance.eu1.zitadel.cloud
