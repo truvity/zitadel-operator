@@ -12,8 +12,11 @@
     "kubernetes-helm@latest",
     "setup-envtest@latest"
   ],
+  "env": {
+    "GOEXPERIMENT": "jsonv2"
+  },
   "shell": {
     "init_hook": [],
-    "scripts":   {}
+    "scripts": {}
   }
 }
