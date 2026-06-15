@@ -25,5 +25,9 @@
       "matchUpdateTypes": ["major"],
       "automerge": false
     }
-  ]
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["security"],
+    "automerge": true
+  }
 }
