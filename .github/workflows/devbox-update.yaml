@@ -1,0 +1,46 @@
+name: Devbox Update
+
+on:
+  schedule:
+    - cron: "0 1 * * 1" # weekly Monday 1am UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/create-github-app-token@v1
+        id: token
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
+      - uses: DeterminateSystems/determinate-nix-action@v3
+
+      - name: Install devbox
+        run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
+
+      - name: Update devbox packages
+        run: devbox update
+
+      - name: Create PR if changes
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          BRANCH="chore/devbox-update-$(date +%Y%m%d)"
+          git config user.name "truvity-renovate[bot]"
+          git config user.email "truvity-renovate[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add devbox.json devbox.lock
+          git commit -m "chore(deps): update devbox packages"
+          git push origin "$BRANCH"
+          gh pr create --title "chore(deps): update devbox packages" --body "Automated weekly devbox update." --base master --label dependencies
