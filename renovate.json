@@ -3,6 +3,7 @@
   "labels": ["dependencies"],
   "automerge": true,
   "automergeType": "pr",
+  "automergeStrategy": "rebase",
   "platformAutomerge": true,
   "lockFileMaintenance": {
     "enabled": true,
