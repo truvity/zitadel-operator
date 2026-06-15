@@ -2,7 +2,7 @@ name: Renovate
 
 on:
   schedule:
-    - cron: "0 4 * * 1" # weekly Monday 4am UTC
+    - cron: "0 0 * * *" # daily midnight UTC
   workflow_dispatch:
 
 permissions:
