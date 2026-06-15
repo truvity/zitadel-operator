@@ -1,0 +1,27 @@
+name: Renovate
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # weekly Monday 4am UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/create-github-app-token@v1
+        id: token
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
+      - uses: renovatebot/github-action@v46
+        with:
+          token: ${{ steps.token.outputs.token }}
+        env:
+          LOG_LEVEL: info
