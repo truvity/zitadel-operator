@@ -17,11 +17,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-        with:
-          use-flakehub: false
+      - uses: DeterminateSystems/determinate-nix-action@v3
 
       - name: Install devbox
         run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
