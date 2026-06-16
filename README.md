@@ -276,6 +276,15 @@ just test-integration
 - **Namespace-scoped RBAC** — multiple operators in one cluster via `watchNamespaces`
 - **No CRD for connection** — instance config is deployment config, not a reconciled resource
 
+## Multi-Instance Deployment
+
+For deployments that need multiple operators (e.g., separate employee and customer identity providers), see [Multi-Instance Deployment Guide](docs/GUIDE-MULTI-INSTANCE.md).
+
+Key features enabling multi-instance:
+- **`watchNamespaces`** — each operator watches only its namespaces
+- **`projectScopeLabel`** (v0.12.0+) — validates CRDs are in correctly-labeled namespaces
+- **Namespace-scoped RBAC** — K8s enforces isolation at the API server level
+
 ## License
 
 MIT
