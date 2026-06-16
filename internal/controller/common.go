@@ -131,7 +131,7 @@ func isRefNotReady(err error) bool {
 // setCondition sets or updates a condition in the given conditions slice.
 // If a condition of the given type exists, it is updated; otherwise a new one is appended.
 // LastTransitionTime is only updated when the status or reason actually changes.
-func setCondition(conditions *[]metav1.Condition, conditionType string, status metav1.ConditionStatus, reason, message string) { //nolint:unparam // conditionType will be extended with ConditionTypeSynced
+func setCondition(conditions *[]metav1.Condition, conditionType string, status metav1.ConditionStatus, reason, message string) {
 	now := metav1.Now()
 	for i, c := range *conditions {
 		if c.Type == conditionType {

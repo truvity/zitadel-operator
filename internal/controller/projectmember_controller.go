@@ -168,20 +168,22 @@ func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, proje
 		return fmt.Errorf("listing project members: %w", err)
 	}
 
-	for _, m := range listResp.GetResult() {
-		if m.GetUserId() == userID {
-			// Member exists, update roles if needed.
-			if !rolesEqual(m.GetRoles(), desiredRoles) {
-				_, err := r.Zitadel.Management().UpdateProjectMember(ctx, &management.UpdateProjectMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
-					ProjectId: projectID,
-					UserId:    userID,
-					Roles:     desiredRoles,
-				})
-				if err != nil {
-					return fmt.Errorf("updating project member: %w", err)
+	if listResp != nil {
+		for _, m := range listResp.GetResult() {
+			if m.GetUserId() == userID {
+				// Member exists, update roles if needed.
+				if !rolesEqual(m.GetRoles(), desiredRoles) {
+					_, err := r.Zitadel.Management().UpdateProjectMember(ctx, &management.UpdateProjectMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+						ProjectId: projectID,
+						UserId:    userID,
+						Roles:     desiredRoles,
+					})
+					if err != nil {
+						return fmt.Errorf("updating project member: %w", err)
+					}
 				}
+				return nil
 			}
-			return nil
 		}
 	}
 
