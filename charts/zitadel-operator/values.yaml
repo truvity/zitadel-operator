@@ -33,6 +33,10 @@ config:
   defaultOrganizationId: ""
   # Limit operator to these namespaces. Empty = all namespaces.
   watchNamespaces: []
+  # Namespace label key for project scope enforcement.
+  # When set, the operator validates that CRDs are in namespaces with this label.
+  # Empty = no enforcement (backward-compatible).
+  projectScopeLabel: ""
 
 # JWT key Secret for authenticating to Zitadel.
 credentials:

@@ -33,6 +33,12 @@ type Config struct {
 	// WatchNamespaces limits the operator to watch only these namespaces.
 	// If empty, the operator watches all namespaces.
 	WatchNamespaces []string `yaml:"watchNamespaces"`
+
+	// ProjectScopeLabel specifies a namespace label key that the operator reads
+	// to determine the expected Zitadel project name for CRDs in that namespace.
+	// When set, the operator validates that the namespace has this label before
+	// reconciling. When empty, no enforcement is applied (backward-compatible).
+	ProjectScopeLabel string `yaml:"projectScopeLabel"`
 }
 
 // DefaultConfigPath returns the default config file path (~/.config/zitadel-operator/config.yaml).

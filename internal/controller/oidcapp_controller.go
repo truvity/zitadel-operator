@@ -43,6 +43,21 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Project scope label enforcement.
+	shouldProceed, err := validateProjectScope(ctx, r.Client, r.Config, req.Namespace, &cr.Status.Conditions)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !shouldProceed {
+		if statusErr := r.Status().Update(ctx, &cr); statusErr != nil {
+			return ctrl.Result{}, statusErr
+		}
+		logger.Info("project scope validation failed, requeueing",
+			"namespace", req.Namespace,
+			"label", r.Config.ProjectScopeLabel)
+		return ctrl.Result{RequeueAfter: requeueOnError}, nil
+	}
+
 	// Resolve project ID (and inherited org ID).
 	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {

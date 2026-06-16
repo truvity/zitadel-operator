@@ -23,3 +23,6 @@ data:
       - {{ . | quote }}
       {{- end }}
     {{- end }}
+    {{- if .Values.config.projectScopeLabel }}
+    projectScopeLabel: {{ .Values.config.projectScopeLabel | quote }}
+    {{- end }}
