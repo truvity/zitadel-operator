@@ -31,7 +31,7 @@ func init() {
 	utilruntime.Must(zitadelv1alpha2.AddToScheme(scheme))
 }
 
-func main() {
+func main() { //nolint:gocyclo // controller registration is inherently sequential
 	var (
 		configPath        string
 		metricsAddr       string

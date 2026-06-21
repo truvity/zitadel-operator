@@ -104,35 +104,44 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Store credentials in Secret.
-	if cr.Spec.Type == "confidential" && clientSecret != "" {
-		if err := r.ensureSecret(ctx, &cr, clientID, clientSecret); err != nil {
-			return ctrl.Result{}, err
-		}
-	} else if cr.Spec.Type == "confidential" && clientID != "" {
-		if err := r.ensureSecretClientID(ctx, &cr, clientID); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := r.ensureCredentialSecret(ctx, &cr, clientID, clientSecret); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Update status only if changed.
-	statusChanged := cr.Status.ApplicationId != appID || cr.Status.ClientId != clientID ||
-		cr.Status.ProjectId != projectID || cr.Status.OrganizationId != inheritedOrgID || !cr.Status.Ready
-	if statusChanged {
-		now := metav1.NewTime(time.Now())
-		cr.Status.ApplicationId = appID
-		cr.Status.ClientId = clientID
-		cr.Status.ProjectId = projectID
-		cr.Status.OrganizationId = inheritedOrgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := r.updateStatusIfNeeded(ctx, &cr, appID, clientID, projectID, inheritedOrgID); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("oidcapp reconciled", "appId", appID, "clientId", clientID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *OIDCAppReconciler) ensureCredentialSecret(ctx context.Context, cr *zitadelv1alpha2.OIDCApp, clientID, clientSecret string) error {
+	if cr.Spec.Type == "confidential" && clientSecret != "" {
+		return r.ensureSecret(ctx, cr, clientID, clientSecret)
+	}
+	if cr.Spec.Type == "confidential" && clientID != "" {
+		return r.ensureSecretClientID(ctx, cr, clientID)
+	}
+	return nil
+}
+
+func (r *OIDCAppReconciler) updateStatusIfNeeded(ctx context.Context, cr *zitadelv1alpha2.OIDCApp, appID, clientID, projectID, inheritedOrgID string) error {
+	statusChanged := cr.Status.ApplicationId != appID || cr.Status.ClientId != clientID ||
+		cr.Status.ProjectId != projectID || cr.Status.OrganizationId != inheritedOrgID || !cr.Status.Ready
+	if !statusChanged {
+		return nil
+	}
+	now := metav1.NewTime(time.Now())
+	cr.Status.ApplicationId = appID
+	cr.Status.ClientId = clientID
+	cr.Status.ProjectId = projectID
+	cr.Status.OrganizationId = inheritedOrgID
+	cr.Status.Ready = true
+	cr.Status.LastSyncTime = &now
+	setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
+	return r.Status().Update(ctx, cr)
 }
 
 func (r *OIDCAppReconciler) findOrCreateApp(ctx context.Context, projectID, displayName string, cr *zitadelv1alpha2.OIDCApp) (appID, clientID, clientSecret string, err error) {

@@ -6,17 +6,17 @@ run:
 linters:
   enable:
     - errcheck
+    - gocritic
+    - gocyclo
+    - gosec
     - govet
     - ineffassign
-    - staticcheck
-    - unused
-    - gocritic
     - misspell
+    - nolintlint
+    - staticcheck
     - unconvert
     - unparam
-    - nolintlint
-    - gosec
-
+    - unused
   settings:
     gocritic:
       enabled-tags:
@@ -29,6 +29,11 @@ linters:
       checks:
         - "all"
         - "-ST1003"  # CRD types use json camelCase field names that conflict with Go ID naming (e.g., IdpId vs IdpID). Cannot fix without breaking the CRD API contract.
+    gocyclo:
+      # Go Report Card uses 15. We use 25 to allow standard controller-runtime
+      # reconciler patterns (get→resolve→delete→finalizer→reconcile→status) which
+      # inherently score 16-22. Anything above 25 should be refactored.
+      min-complexity: 25
 
 formatters:
   enable:
@@ -45,3 +50,7 @@ issues:
     - path: _test\.go
       linters:
         - unparam
+        - gocyclo
+    - path: cmd/operator/
+      linters:
+        - gocyclo

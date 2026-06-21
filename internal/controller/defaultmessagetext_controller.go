@@ -86,12 +86,7 @@ func (r *DefaultMessageTextReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	// Warn if email-only fields are set for verifySmsOtp.
-	if spec.Type == "verifySmsOtp" {
-		if spec.Title != "" || spec.Subject != "" || spec.PreHeader != "" || spec.Greeting != "" || spec.ButtonText != "" || spec.FooterText != "" {
-			logger.Info("WARNING: verifySmsOtp only uses language and text fields; other fields are ignored by Zitadel")
-			setCondition(&cr.Status.Conditions, "SmsFieldWarning", metav1.ConditionTrue, "IgnoredFields", "verifySmsOtp type only uses language and text; other fields are ignored")
-		}
-	}
+	r.warnSmsUnusedFields(ctx, &cr, spec)
 
 	// Set the message text (idempotent — always call Set on every reconcile).
 	if err := r.setDefaultMessageText(ctx, spec); err != nil {
@@ -111,6 +106,18 @@ func (r *DefaultMessageTextReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	logger.Info("defaultmessagetext reconciled", "type", spec.Type, "language", spec.Language)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *DefaultMessageTextReconciler) warnSmsUnusedFields(ctx context.Context, cr *zitadelv1alpha2.DefaultMessageText, spec *zitadelv1alpha2.MessageTextFields) {
+	if spec.Type != "verifySmsOtp" {
+		return
+	}
+	if spec.Title == "" && spec.Subject == "" && spec.PreHeader == "" && spec.Greeting == "" && spec.ButtonText == "" && spec.FooterText == "" {
+		return
+	}
+	logger := log.FromContext(ctx)
+	logger.Info("WARNING: verifySmsOtp only uses language and text fields; other fields are ignored by Zitadel")
+	setCondition(&cr.Status.Conditions, "SmsFieldWarning", metav1.ConditionTrue, "IgnoredFields", "verifySmsOtp type only uses language and text; other fields are ignored")
 }
 
 func (r *DefaultMessageTextReconciler) setDefaultMessageText(ctx context.Context, spec *zitadelv1alpha2.MessageTextFields) error {
