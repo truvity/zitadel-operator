@@ -8,8 +8,13 @@ generate:
     controller-gen object paths="./api/..."
     controller-gen crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
     cp config/crd/bases/*.yaml charts/zitadel-operator-crds/templates/
-# Build the operator binary (depends on generate to ensure CRDs are up to date)
-build: generate
+
+# Format all Go files (gofmt + goimports via golangci-lint)
+fmt:
+    golangci-lint fmt ./...
+
+# Build the operator binary (depends on generate + fmt)
+build: generate fmt
     go build -o bin/zitadel-operator ./cmd/operator/
 
 # Run tests
