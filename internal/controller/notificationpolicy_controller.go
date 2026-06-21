@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -44,43 +43,56 @@ func (r *NotificationPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err != nil {
 		if isRefNotReady(err) {
 			logger.Info("waiting for organization ref to become ready", "error", err)
+			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "OrgNotReady", err.Error())
+			_ = r.Status().Update(ctx, &cr)
 			return ctrl.Result{RequeueAfter: requeueOnError}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
 
-	// Set org context for Management API calls.
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		_, err := r.Zitadel.Management().ResetNotificationPolicyToDefault(ctx, &management.ResetNotificationPolicyToDefaultRequest{})
 		if err != nil && status.Code(err) != codes.NotFound {
-			logger.Info("could not reset notification policy to default", "error", err)
+			return err
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// Ensure notification policy exists.
+	// Business logic.
+	if err := r.syncPolicy(ctx, &cr.Spec); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Status.
+	statusChanged := cr.Status.OrganizationId != orgID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("notificationpolicy reconciled", "orgId", orgID)
+	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *NotificationPolicyReconciler) syncPolicy(ctx context.Context, spec *zitadelv1alpha2.NotificationPolicySpec) error {
 	passwordChange := false
-	if cr.Spec.PasswordChange != nil {
-		passwordChange = *cr.Spec.PasswordChange
+	if spec.PasswordChange != nil {
+		passwordChange = *spec.PasswordChange
 	}
 
-	// Try update first, then add.
-	_, err = r.Zitadel.Management().UpdateCustomNotificationPolicy(ctx, &management.UpdateCustomNotificationPolicyRequest{
+	_, err := r.Zitadel.Management().UpdateCustomNotificationPolicy(ctx, &management.UpdateCustomNotificationPolicyRequest{
 		PasswordChange: passwordChange,
 	})
 	if err != nil {
@@ -89,27 +101,13 @@ func (r *NotificationPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 				PasswordChange: passwordChange,
 			})
 			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("adding custom notification policy: %w", err)
+				return fmt.Errorf("adding custom notification policy: %w", err)
 			}
 		} else {
-			return ctrl.Result{}, fmt.Errorf("updating custom notification policy: %w", err)
+			return fmt.Errorf("updating custom notification policy: %w", err)
 		}
 	}
-
-	// Update status.
-	if cr.Status.OrganizationId != orgID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	logger.Info("notificationpolicy reconciled", "orgId", orgID)
-	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

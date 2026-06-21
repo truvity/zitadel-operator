@@ -36,54 +36,36 @@ func (r *DefaultLoginPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Singleton conflict detection: only the earliest-created CR manages the instance.
-	var list zitadelv1alpha2.DefaultLoginPolicyList
-	if err := r.List(ctx, &list); err != nil {
+	// Singleton conflict detection.
+	if conflict, err := r.checkConflict(ctx, &cr); err != nil || conflict {
+		return ctrl.Result{RequeueAfter: requeueInterval}, err
+	}
+
+	// Deletion.
+	if done, result, err := handleSingletonDeletion(ctx, r.Client, &cr, func() {
+		_, _ = r.Zitadel.Admin().UpdateLoginPolicy(ctx, &admin.UpdateLoginPolicyRequest{
+			AllowUsernamePassword:  true,
+			AllowExternalIdp:       false,
+			AllowRegister:          false,
+			ForceMfa:               false,
+			ForceMfaLocalOnly:      false,
+			HidePasswordReset:      false,
+			PasswordlessType:       policyv1.PasswordlessType_PASSWORDLESS_TYPE_NOT_ALLOWED,
+			AllowDomainDiscovery:   false,
+			IgnoreUnknownUsernames: false,
+			DefaultRedirectUri:     "",
+		})
+		logger.Info("reset instance login policy to defaults (reset-on-delete annotation present)")
+	}); done {
+		return result, err
+	}
+
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
-	candidates := make([]singletonCandidate, len(list.Items))
-	for i := range list.Items {
-		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
-	}
-	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultLoginPolicy") {
-		_ = r.Status().Update(ctx, &cr)
-		return ctrl.Result{RequeueAfter: requeueInterval}, nil
-	}
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
-		if shouldResetOnDelete(&cr) {
-			// Zitadel documented instance defaults: AllowUsernamePassword=true, others=false, PasswordlessType=NOT_ALLOWED.
-			_, _ = r.Zitadel.Admin().UpdateLoginPolicy(ctx, &admin.UpdateLoginPolicyRequest{
-				AllowUsernamePassword:  true,
-				AllowExternalIdp:       false,
-				AllowRegister:          false,
-				ForceMfa:               false,
-				ForceMfaLocalOnly:      false,
-				HidePasswordReset:      false,
-				PasswordlessType:       policyv1.PasswordlessType_PASSWORDLESS_TYPE_NOT_ALLOWED,
-				AllowDomainDiscovery:   false,
-				IgnoreUnknownUsernames: false,
-				DefaultRedirectUri:     "",
-			})
-			logger.Info("reset instance login policy to defaults (reset-on-delete annotation present)")
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Resolve IdP IDs for the idps list.
+	// Resolve IdP IDs.
 	idpIDs, err := r.resolveIdpRefs(ctx, &cr)
 	if err != nil {
 		logger.Info("waiting for idp ref to become ready", "error", err)
@@ -93,78 +75,104 @@ func (r *DefaultLoginPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{RequeueAfter: requeueOnError}, nil
 	}
 
-	// Read current login policy from Zitadel.
-	current, err := r.Zitadel.Admin().GetLoginPolicy(ctx, &admin.GetLoginPolicyRequest{})
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("getting default login policy: %w", err)
+	// Business logic.
+	if err := r.reconcileSpec(ctx, &cr, idpIDs); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// Detect drift and update if needed.
-	if r.hasDrift(&cr.Spec, current.GetPolicy()) {
-		if err := r.updatePolicy(ctx, &cr.Spec); err != nil {
-			return ctrl.Result{}, fmt.Errorf("updating default login policy: %w", err)
-		}
-		logger.Info("default login policy updated (drift detected)")
-	}
-
-	// Sync IDPs in the login policy.
-	if err := r.syncIdps(ctx, idpIDs); err != nil {
-		return ctrl.Result{}, fmt.Errorf("syncing login policy idps: %w", err)
-	}
-
-	// Update status.
-	if !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, false); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("defaultloginpolicy reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
 }
 
+func (r *DefaultLoginPolicyReconciler) checkConflict(ctx context.Context, cr *zitadelv1alpha2.DefaultLoginPolicy) (bool, error) {
+	var list zitadelv1alpha2.DefaultLoginPolicyList
+	if err := r.List(ctx, &list); err != nil {
+		return false, err
+	}
+	candidates := make([]singletonCandidate, len(list.Items))
+	for i := range list.Items {
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultLoginPolicy") {
+		_ = r.Status().Update(ctx, cr)
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *DefaultLoginPolicyReconciler) reconcileSpec(ctx context.Context, cr *zitadelv1alpha2.DefaultLoginPolicy, idpIDs []string) error {
+	logger := log.FromContext(ctx)
+	current, err := r.Zitadel.Admin().GetLoginPolicy(ctx, &admin.GetLoginPolicyRequest{})
+	if err != nil {
+		return fmt.Errorf("getting default login policy: %w", err)
+	}
+	if r.hasDrift(&cr.Spec, current.GetPolicy()) {
+		if err := r.updatePolicy(ctx, &cr.Spec); err != nil {
+			return fmt.Errorf("updating default login policy: %w", err)
+		}
+		logger.Info("default login policy updated (drift detected)")
+	}
+	if err := r.syncIdps(ctx, idpIDs); err != nil {
+		return fmt.Errorf("syncing login policy idps: %w", err)
+	}
+	return nil
+}
+
 func (r *DefaultLoginPolicyReconciler) hasDrift(spec *zitadelv1alpha2.DefaultLoginPolicySpec, current *policyv1.LoginPolicy) bool {
 	if current == nil {
 		return true
 	}
-	if spec.UserLogin != nil && *spec.UserLogin != current.GetAllowUsernamePassword() {
+	return r.hasFlagDrift(spec, current) || r.hasSettingDrift(spec, current)
+}
+
+func (r *DefaultLoginPolicyReconciler) hasFlagDrift(spec *zitadelv1alpha2.DefaultLoginPolicySpec, current *policyv1.LoginPolicy) bool {
+	if boolPtrDiffers(spec.UserLogin, current.GetAllowUsernamePassword()) {
 		return true
 	}
-	if spec.AllowExternalIdp != nil && *spec.AllowExternalIdp != current.GetAllowExternalIdp() {
+	if boolPtrDiffers(spec.AllowExternalIdp, current.GetAllowExternalIdp()) {
 		return true
 	}
-	if spec.AllowRegister != nil && *spec.AllowRegister != current.GetAllowRegister() {
+	if boolPtrDiffers(spec.AllowRegister, current.GetAllowRegister()) {
 		return true
 	}
-	if spec.ForceMfa != nil && *spec.ForceMfa != current.GetForceMfa() {
+	if boolPtrDiffers(spec.ForceMfa, current.GetForceMfa()) {
 		return true
 	}
-	if spec.ForceMfaLocalOnly != nil && *spec.ForceMfaLocalOnly != current.GetForceMfaLocalOnly() {
+	if boolPtrDiffers(spec.ForceMfaLocalOnly, current.GetForceMfaLocalOnly()) {
 		return true
 	}
-	if spec.HidePasswordReset != nil && *spec.HidePasswordReset != current.GetHidePasswordReset() {
+	if boolPtrDiffers(spec.HidePasswordReset, current.GetHidePasswordReset()) {
 		return true
 	}
-	if spec.PasswordlessType != "" {
-		desired := mapPasswordlessType(spec.PasswordlessType)
-		if desired != current.GetPasswordlessType() {
-			return true
-		}
-	}
-	if spec.AllowDomainDiscovery != nil && *spec.AllowDomainDiscovery != current.GetAllowDomainDiscovery() {
+	if boolPtrDiffers(spec.AllowDomainDiscovery, current.GetAllowDomainDiscovery()) {
 		return true
 	}
-	if spec.IgnoreUnknownUsernames != nil && *spec.IgnoreUnknownUsernames != current.GetIgnoreUnknownUsernames() {
+	if boolPtrDiffers(spec.IgnoreUnknownUsernames, current.GetIgnoreUnknownUsernames()) {
+		return true
+	}
+	return false
+}
+
+func (r *DefaultLoginPolicyReconciler) hasSettingDrift(spec *zitadelv1alpha2.DefaultLoginPolicySpec, current *policyv1.LoginPolicy) bool {
+	if spec.PasswordlessType != "" && mapPasswordlessType(spec.PasswordlessType) != current.GetPasswordlessType() {
 		return true
 	}
 	if spec.DefaultRedirectUri != "" && spec.DefaultRedirectUri != current.GetDefaultRedirectUri() {
 		return true
 	}
 	return false
+}
+
+// boolPtrDiffers returns true if the pointer is non-nil and its value differs from current.
+func boolPtrDiffers(ptr *bool, current bool) bool {
+	return ptr != nil && *ptr != current
 }
 
 func (r *DefaultLoginPolicyReconciler) updatePolicy(ctx context.Context, spec *zitadelv1alpha2.DefaultLoginPolicySpec) error {
@@ -242,7 +250,6 @@ func (r *DefaultLoginPolicyReconciler) resolveIdpRefs(ctx context.Context, cr *z
 }
 
 func (r *DefaultLoginPolicyReconciler) syncIdps(ctx context.Context, desiredIDs []string) error {
-	// List current IDPs in login policy.
 	listResp, err := r.Zitadel.Admin().ListLoginPolicyIDPs(ctx, &admin.ListLoginPolicyIDPsRequest{})
 	if err != nil {
 		return fmt.Errorf("listing login policy idps: %w", err)
@@ -258,24 +265,18 @@ func (r *DefaultLoginPolicyReconciler) syncIdps(ctx context.Context, desiredIDs 
 		desiredSet[id] = true
 	}
 
-	// Add missing.
 	for _, id := range desiredIDs {
 		if !currentIDs[id] {
-			_, err := r.Zitadel.Admin().AddIDPToLoginPolicy(ctx, &admin.AddIDPToLoginPolicyRequest{
-				IdpId: id,
-			})
+			_, err := r.Zitadel.Admin().AddIDPToLoginPolicy(ctx, &admin.AddIDPToLoginPolicyRequest{IdpId: id})
 			if err != nil {
 				return fmt.Errorf("adding idp %s to login policy: %w", id, err)
 			}
 		}
 	}
 
-	// Remove extras.
 	for id := range currentIDs {
 		if !desiredSet[id] {
-			_, err := r.Zitadel.Admin().RemoveIDPFromLoginPolicy(ctx, &admin.RemoveIDPFromLoginPolicyRequest{
-				IdpId: id,
-			})
+			_, err := r.Zitadel.Admin().RemoveIDPFromLoginPolicy(ctx, &admin.RemoveIDPFromLoginPolicyRequest{IdpId: id})
 			if err != nil {
 				return fmt.Errorf("removing idp %s from login policy: %w", id, err)
 			}

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -36,72 +35,86 @@ func (r *DefaultOIDCSettingsReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Singleton conflict detection: only the earliest-created CR manages the instance.
+	// Singleton conflict detection.
+	if conflict, err := r.checkConflict(ctx, &cr); err != nil || conflict {
+		return ctrl.Result{RequeueAfter: requeueInterval}, err
+	}
+
+	// Deletion.
+	if done, result, err := handleSingletonDeletion(ctx, r.Client, &cr, func() {
+		_, _ = r.Zitadel.Admin().UpdateOIDCSettings(ctx, &admin.UpdateOIDCSettingsRequest{
+			AccessTokenLifetime:        durationpb.New(12 * time.Hour),
+			IdTokenLifetime:            durationpb.New(12 * time.Hour),
+			RefreshTokenIdleExpiration: durationpb.New(720 * time.Hour),
+			RefreshTokenExpiration:     durationpb.New(2160 * time.Hour),
+		})
+		logger.Info("reset instance OIDC settings to defaults (reset-on-delete annotation present)")
+	}); done {
+		return result, err
+	}
+
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Business logic.
+	if err := r.reconcileSpec(ctx, &cr); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Status.
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, false); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("defaultoidcsettings reconciled")
+	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *DefaultOIDCSettingsReconciler) checkConflict(ctx context.Context, cr *zitadelv1alpha2.DefaultOIDCSettings) (bool, error) {
 	var list zitadelv1alpha2.DefaultOIDCSettingsList
 	if err := r.List(ctx, &list); err != nil {
-		return ctrl.Result{}, err
+		return false, err
 	}
 	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
 		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
 	}
-	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultOIDCSettings") {
-		_ = r.Status().Update(ctx, &cr)
-		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	if checkSingletonConflict(cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultOIDCSettings") {
+		_ = r.Status().Update(ctx, cr)
+		return true, nil
 	}
+	return false, nil
+}
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
-		if shouldResetOnDelete(&cr) {
-			// Zitadel documented instance defaults: 12h/12h/720h/2160h.
-			_, _ = r.Zitadel.Admin().UpdateOIDCSettings(ctx, &admin.UpdateOIDCSettingsRequest{
-				AccessTokenLifetime:        durationpb.New(12 * time.Hour),
-				IdTokenLifetime:            durationpb.New(12 * time.Hour),
-				RefreshTokenIdleExpiration: durationpb.New(720 * time.Hour),
-				RefreshTokenExpiration:     durationpb.New(2160 * time.Hour),
-			})
-			logger.Info("reset instance OIDC settings to defaults (reset-on-delete annotation present)")
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
-	}
+func (r *DefaultOIDCSettingsReconciler) reconcileSpec(ctx context.Context, cr *zitadelv1alpha2.DefaultOIDCSettings) error {
+	logger := log.FromContext(ctx)
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Parse desired durations from spec.
 	accessTokenLifetime, err := parseDurationOrDefault(cr.Spec.AccessTokenLifetime, 12*time.Hour)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("parsing accessTokenLifetime: %w", err)
+		return fmt.Errorf("parsing accessTokenLifetime: %w", err)
 	}
 	idTokenLifetime, err := parseDurationOrDefault(cr.Spec.IdTokenLifetime, 12*time.Hour)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("parsing idTokenLifetime: %w", err)
+		return fmt.Errorf("parsing idTokenLifetime: %w", err)
 	}
 	refreshTokenIdleExpiration, err := parseDurationOrDefault(cr.Spec.RefreshTokenIdleExpiration, 720*time.Hour)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("parsing refreshTokenIdleExpiration: %w", err)
+		return fmt.Errorf("parsing refreshTokenIdleExpiration: %w", err)
 	}
 	refreshTokenExpiration, err := parseDurationOrDefault(cr.Spec.RefreshTokenExpiration, 2160*time.Hour)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("parsing refreshTokenExpiration: %w", err)
+		return fmt.Errorf("parsing refreshTokenExpiration: %w", err)
 	}
 
-	// Read current OIDC settings from Zitadel.
 	current, err := r.Zitadel.Admin().GetOIDCSettings(ctx, &admin.GetOIDCSettingsRequest{})
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("getting OIDC settings: %w", err)
+		return fmt.Errorf("getting OIDC settings: %w", err)
 	}
 
-	// Detect drift and update if needed.
 	if r.hasDrift(current.GetSettings(), accessTokenLifetime, idTokenLifetime, refreshTokenIdleExpiration, refreshTokenExpiration) {
 		_, err := r.Zitadel.Admin().UpdateOIDCSettings(ctx, &admin.UpdateOIDCSettingsRequest{
 			AccessTokenLifetime:        durationpb.New(accessTokenLifetime),
@@ -110,24 +123,11 @@ func (r *DefaultOIDCSettingsReconciler) Reconcile(ctx context.Context, req ctrl.
 			RefreshTokenExpiration:     durationpb.New(refreshTokenExpiration),
 		})
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("updating OIDC settings: %w", err)
+			return fmt.Errorf("updating OIDC settings: %w", err)
 		}
 		logger.Info("default OIDC settings updated (drift detected)")
 	}
-
-	// Update status.
-	if !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	logger.Info("defaultoidcsettings reconciled")
-	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	return nil
 }
 
 // hasDrift checks if the current OIDC settings differ from the desired state.

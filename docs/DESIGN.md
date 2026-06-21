@@ -1175,6 +1175,56 @@ spec:
 
 If the referenced Secret doesn't exist, the reconciler sets `Ready=False` with reason `SecretNotFound` and requeues (10s). Once the Secret appears, the next reconcile succeeds.
 
+### Pattern 4: Lifecycle Framework (lifecycle.go)
+
+All controllers use shared lifecycle helpers from `internal/controller/lifecycle.go` to eliminate duplicated boilerplate and keep cyclomatic complexity below 15. Each `Reconcile` method follows this structure:
+
+```go
+func (r *XReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    var cr v1alpha2.X
+    if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
+        return ctrl.Result{}, client.IgnoreNotFound(err)
+    }
+
+    // 1. Deletion (using lifecycle helper)
+    if done, result, err := handleDeletionStrict(ctx, r.Client, &cr, func() error {
+        // cleanup logic...
+        return nil
+    }); done {
+        return result, err
+    }
+
+    // 2. Finalizer (always continue after adding)
+    if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+        return ctrl.Result{}, err
+    }
+
+    // 3. Business logic (resource-specific)
+    // ... resolve refs, call Zitadel API, etc.
+
+    // 4. Status update (using lifecycle helper)
+    statusChanged := cr.Status.SomeId != newId
+    cr.Status.SomeId = newId
+    return ctrl.Result{RequeueAfter: requeueInterval}, markReady(ctx, r.Client, &cr, statusFields{
+        conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+    }, statusChanged)
+}
+```
+
+**Available helpers:**
+
+| Helper | Purpose |
+|--------|---------|
+| `handleDeletion` | Non-blocking cleanup on delete (logs errors, continues) |
+| `handleDeletionStrict` | Blocking cleanup (returns error, blocks finalizer removal) |
+| `handleSingletonDeletion` | Opt-in reset for Default* singletons (checks annotation) |
+| `ensureFinalizer` | Adds finalizer if missing (always continues reconciling) |
+| `markReady` | Sets Ready=true + condition if state changed |
+| `waitForRef` | Handles ref-not-ready pattern (condition + requeue) |
+| `checkProjectScope` | Project scope label validation |
+
+**Adding a new controller:** Implement only the business logic. Use lifecycle helpers for everything else. Target: Reconcile method ≤15 cyclomatic complexity.
+
 ---
 
 ## Instance-Default Singleton Semantics

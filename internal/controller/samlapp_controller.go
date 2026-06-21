@@ -3,14 +3,12 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
@@ -31,64 +29,44 @@ type SAMLAppReconciler struct {
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=samlapps/finalizers,verbs=update
 
 func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var cr zitadelv1alpha2.SAMLApp
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Project scope label enforcement.
-	shouldProceed, err := validateProjectScope(ctx, r.Client, r.Config, req.Namespace, &cr.Status.Conditions)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if !shouldProceed {
-		if statusErr := r.Status().Update(ctx, &cr); statusErr != nil {
-			return ctrl.Result{}, statusErr
-		}
-		logger.Info("project scope validation failed, requeueing",
-			"namespace", req.Namespace,
-			"label", r.Config.ProjectScopeLabel)
-		return ctrl.Result{RequeueAfter: requeueOnError}, nil
+	if done, result, err := checkProjectScope(ctx, r.Client, r.Config, req.Namespace, &cr, &cr.Status.Conditions); done {
+		return result, err
 	}
 
 	// Resolve project ID (and inherited org ID).
 	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for project ref to become ready", "error", err)
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "ProjectNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
 	}
 
 	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	if done, result, err := handleDeletionStrict(ctx, r.Client, &cr, func() error {
 		if cr.Status.ApplicationId != "" {
 			_, err := r.Zitadel.Application().DeleteApplication(ctx, &applicationv2.DeleteApplicationRequest{
 				ApplicationId: cr.Status.ApplicationId,
 				ProjectId:     projectID,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("deleting SAML application: %w", err)
+				return fmt.Errorf("deleting SAML application: %w", err)
 			}
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
 	// Add finalizer if not present.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Find or create app.
@@ -110,22 +88,13 @@ func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Update status only if changed.
 	statusChanged := cr.Status.ApplicationId != appID ||
-		cr.Status.ProjectId != projectID || cr.Status.OrganizationId != inheritedOrgID || !cr.Status.Ready
-	if statusChanged {
-		now := metav1.NewTime(time.Now())
-		cr.Status.ApplicationId = appID
-		cr.Status.ProjectId = projectID
-		cr.Status.OrganizationId = inheritedOrgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	logger.Info("samlapp reconciled", "appId", appID)
-	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		cr.Status.ProjectId != projectID || cr.Status.OrganizationId != inheritedOrgID
+	cr.Status.ApplicationId = appID
+	cr.Status.ProjectId = projectID
+	cr.Status.OrganizationId = inheritedOrgID
+	return ctrl.Result{RequeueAfter: requeueInterval}, markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged)
 }
 
 func (r *SAMLAppReconciler) findAppByName(ctx context.Context, projectID, appName string) string {

@@ -3,8 +3,12 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/member"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -13,13 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
-
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/member"
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object"
 )
 
 // ProjectGrantMemberReconciler reconciles a ProjectGrantMember object.
@@ -82,29 +81,24 @@ func (r *ProjectGrantMemberReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	grantID := cr.Spec.GrantId
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		_, err := r.Zitadel.Management().RemoveProjectGrantMember(ctx, &management.RemoveProjectGrantMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			ProjectId: projectID,
 			GrantId:   grantID,
 			UserId:    userID,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
-			return ctrl.Result{}, fmt.Errorf("removing project grant member: %w", err)
+			return fmt.Errorf("removing project grant member: %w", err)
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure project grant member exists with correct roles.
@@ -114,15 +108,12 @@ func (r *ProjectGrantMemberReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	if !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := false // no ID fields beyond ready
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("projectgrantmember reconciled", "projectId", projectID, "grantId", grantID, "userId", userID)

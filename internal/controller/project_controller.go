@@ -3,12 +3,14 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
+	filterv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object"
+	projectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -16,11 +18,6 @@ import (
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
-
-	filterv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/filter/v2"
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object"
-	projectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/project/v2"
 )
 
 // ProjectReconciler reconciles a Project object.
@@ -52,29 +49,24 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		if cr.Status.ProjectId != "" {
 			_, err := r.Zitadel.Project().DeleteProject(ctx, &projectv2.DeleteProjectRequest{
 				ProjectId: cr.Status.ProjectId,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("deleting project: %w", err)
+				return fmt.Errorf("deleting project: %w", err)
 			}
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer if not present.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure project exists.
@@ -90,17 +82,14 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Update status only if changed.
-	if cr.Status.ProjectId != projectID || cr.Status.OrganizationId != orgID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.ProjectId = projectID
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		cr.Status.LastSyncTime = &now
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.ProjectId != projectID || cr.Status.OrganizationId != orgID
+	cr.Status.ProjectId = projectID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("project reconciled", "projectId", projectID, "orgId", orgID)

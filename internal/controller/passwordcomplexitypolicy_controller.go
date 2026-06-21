@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -53,53 +52,46 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
-	// Handle deletion: reset to default.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		_, err := r.Zitadel.Management().ResetPasswordComplexityPolicyToDefault(ctx, &management.ResetPasswordComplexityPolicyToDefaultRequest{})
 		if err != nil && status.Code(err) != codes.NotFound {
-			logger.Info("could not reset password complexity policy to default", "error", err)
+			return nil // non-critical
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Check if custom policy already exists by getting current and checking if it's custom.
-	currentResp, err := r.Zitadel.Management().GetPasswordComplexityPolicy(ctx, &management.GetPasswordComplexityPolicyRequest{})
-	if err != nil && status.Code(err) != codes.NotFound {
-		return ctrl.Result{}, fmt.Errorf("getting password complexity policy: %w", err)
-	}
-
-	// Sync the policy.
-	if err := r.syncPolicy(ctx, &cr.Spec, currentResp); err != nil {
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	statusChanged := cr.Status.OrganizationId != orgID || !cr.Status.Ready
-	if statusChanged {
-		now := metav1.NewTime(time.Now())
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Business logic.
+	if err := r.reconcileSpec(ctx, &cr); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Status.
+	statusChanged := cr.Status.OrganizationId != orgID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("passwordcomplexitypolicy reconciled", "orgId", orgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *PasswordComplexityPolicyReconciler) reconcileSpec(ctx context.Context, cr *zitadelv1alpha2.PasswordComplexityPolicy) error {
+	currentResp, err := r.Zitadel.Management().GetPasswordComplexityPolicy(ctx, &management.GetPasswordComplexityPolicyRequest{})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("getting password complexity policy: %w", err)
+	}
+	return r.syncPolicy(ctx, &cr.Spec, currentResp)
 }
 
 // syncPolicy creates or updates the custom password complexity policy if drift is detected.

@@ -70,30 +70,25 @@ func (r *PersonalAccessTokenReconciler) Reconcile(ctx context.Context, req ctrl.
 	// Set org context for Management API calls.
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		if cr.Status.TokenId != "" {
 			_, err := r.Zitadel.Management().RemovePersonalAccessToken(ctx, &management.RemovePersonalAccessTokenRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				UserId:  userID,
 				TokenId: cr.Status.TokenId,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("removing personal access token: %w", err)
+				return fmt.Errorf("removing personal access token: %w", err)
 			}
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer if not present.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure token exists and is stored in Secret.
@@ -103,17 +98,14 @@ func (r *PersonalAccessTokenReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// Update status only if changed.
-	if cr.Status.UserId != userID || cr.Status.OrganizationId != orgID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.UserId = userID
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.UserId != userID || cr.Status.OrganizationId != orgID
+	cr.Status.UserId = userID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("personalaccesstoken reconciled", "tokenId", cr.Status.TokenId, "userId", userID)

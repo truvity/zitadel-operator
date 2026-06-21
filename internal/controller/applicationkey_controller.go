@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
@@ -37,8 +36,6 @@ type ApplicationKeyReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 
 func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var cr zitadelv1alpha2.ApplicationKey
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -47,11 +44,8 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Resolve project ID (and inherited org ID).
 	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for project ref to become ready", "error", err)
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "ProjectNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
 	}
@@ -59,11 +53,8 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Resolve app ID.
 	appID, err := resolveAppId(ctx, r.Client, cr.Spec.AppRef, cr.Spec.AppId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for app ref to become ready", "error", err)
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "AppNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "AppNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving app: %w", err)
 	}
@@ -73,31 +64,16 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", inheritedOrgID)
 	}
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
-		if cr.Status.KeyId != "" {
-			_, err := r.Zitadel.Management().RemoveAppKey(ctx, &management.RemoveAppKeyRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
-				ProjectId: projectID,
-				AppId:     appID,
-				KeyId:     cr.Status.KeyId,
-			})
-			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("removing app key: %w", err)
-			}
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+	// Deletion.
+	if done, result, err := handleDeletionStrict(ctx, r.Client, &cr, func() error {
+		return r.deleteKey(ctx, projectID, appID, cr.Status.KeyId)
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer if not present.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure key exists and is stored in Secret.
@@ -107,21 +83,32 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// Update status only if changed.
-	if cr.Status.ProjectId != projectID || cr.Status.AppId != appID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.ProjectId = projectID
-		cr.Status.AppId = appID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.ProjectId != projectID || cr.Status.AppId != appID
+	cr.Status.ProjectId = projectID
+	cr.Status.AppId = appID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	logger.Info("applicationkey reconciled", "keyId", cr.Status.KeyId, "appId", appID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *ApplicationKeyReconciler) deleteKey(ctx context.Context, projectID, appID, keyID string) error {
+	if keyID == "" {
+		return nil
+	}
+	_, err := r.Zitadel.Management().RemoveAppKey(ctx, &management.RemoveAppKeyRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+		ProjectId: projectID,
+		AppId:     appID,
+		KeyId:     keyID,
+	})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("removing app key: %w", err)
+	}
+	return nil
 }
 
 func (r *ApplicationKeyReconciler) ensureKey(ctx context.Context, cr *zitadelv1alpha2.ApplicationKey, projectID, appID string) error {
@@ -151,6 +138,10 @@ func (r *ApplicationKeyReconciler) ensureKey(ctx context.Context, cr *zitadelv1a
 		ExpirationDate: timestamppb.New(expiration),
 	})
 	if err != nil {
+		if status.Code(err) == codes.FailedPrecondition {
+			// App may not be fully propagated in Zitadel yet — requeue.
+			return fmt.Errorf("creating app key (will retry): %w", err)
+		}
 		return fmt.Errorf("creating app key: %w", err)
 	}
 

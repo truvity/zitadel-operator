@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,8 +30,6 @@ type SmsProviderReconciler struct {
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=smsproviders/finalizers,verbs=update
 
 func (r *SmsProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var cr zitadelv1alpha2.SmsProvider
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -51,66 +48,56 @@ func (r *SmsProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
-		if cr.Status.ProviderId != "" {
-			_, err := r.Zitadel.Admin().RemoveSMSProvider(ctx, &admin.RemoveSMSProviderRequest{
-				Id: cr.Status.ProviderId,
-			})
-			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("removing SMS provider: %w", err)
-			}
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+	if done, result, err := handleDeletionStrict(ctx, r.Client, &cr, func() error {
+		return r.deleteProvider(ctx, cr.Status.ProviderId)
+	}); done {
+		return result, err
 	}
 
 	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure SMS provider exists.
 	providerID, err := r.ensureSmsProvider(ctx, &cr)
 	if err != nil {
-		if isRefNotReady(err) {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "SecretNotFound", err.Error())
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "SecretNotFound", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, err
 	}
 
 	// Activate the provider.
-	if providerID != "" {
-		_, err := r.Zitadel.Admin().ActivateSMSProvider(ctx, &admin.ActivateSMSProviderRequest{
-			Id: providerID,
-		})
-		if err != nil && status.Code(err) != codes.FailedPrecondition {
-			// FailedPrecondition means already active — that's fine.
-			logger.Info("could not activate SMS provider (may already be active)", "error", err)
-		}
-	}
+	r.activateProvider(ctx, providerID)
 
 	// Update status.
-	if cr.Status.ProviderId != providerID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.ProviderId = providerID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	statusChanged := cr.Status.ProviderId != providerID
+	cr.Status.ProviderId = providerID
+	return ctrl.Result{RequeueAfter: requeueInterval}, markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged)
+}
 
-	logger.Info("smsprovider reconciled", "providerId", providerID)
-	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+func (r *SmsProviderReconciler) deleteProvider(ctx context.Context, providerID string) error {
+	if providerID == "" {
+		return nil
+	}
+	_, err := r.Zitadel.Admin().RemoveSMSProvider(ctx, &admin.RemoveSMSProviderRequest{Id: providerID})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("removing SMS provider: %w", err)
+	}
+	return nil
+}
+
+func (r *SmsProviderReconciler) activateProvider(ctx context.Context, providerID string) {
+	if providerID == "" {
+		return
+	}
+	_, err := r.Zitadel.Admin().ActivateSMSProvider(ctx, &admin.ActivateSMSProviderRequest{Id: providerID})
+	if err != nil && status.Code(err) != codes.FailedPrecondition {
+		log.FromContext(ctx).Info("could not activate SMS provider (may already be active)", "error", err)
+	}
 }
 
 func (r *SmsProviderReconciler) ensureSmsProvider(ctx context.Context, cr *zitadelv1alpha2.SmsProvider) (string, error) {

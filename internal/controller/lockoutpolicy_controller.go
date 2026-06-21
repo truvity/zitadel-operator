@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -53,49 +52,34 @@ func (r *LockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
-	// Handle deletion: reset to default.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		_, err := r.Zitadel.Management().ResetLockoutPolicyToDefault(ctx, &management.ResetLockoutPolicyToDefaultRequest{})
 		if err != nil && status.Code(err) != codes.NotFound {
-			logger.Info("could not reset lockout policy to default", "error", err)
+			return err
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Check current lockout policy.
-	currentResp, err := r.Zitadel.Management().GetLockoutPolicy(ctx, &management.GetLockoutPolicyRequest{})
-	if err != nil && status.Code(err) != codes.NotFound {
-		return ctrl.Result{}, fmt.Errorf("getting lockout policy: %w", err)
-	}
-
-	// Sync the policy.
-	if err := r.syncPolicy(ctx, &cr.Spec, currentResp); err != nil {
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	statusChanged := cr.Status.OrganizationId != orgID || !cr.Status.Ready
-	if statusChanged {
-		now := metav1.NewTime(time.Now())
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Business logic.
+	if err := r.syncPolicy(ctx, &cr.Spec); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Status.
+	statusChanged := cr.Status.OrganizationId != orgID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("lockoutpolicy reconciled", "orgId", orgID)
@@ -103,7 +87,12 @@ func (r *LockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 // syncPolicy creates or updates the custom lockout policy if drift is detected.
-func (r *LockoutPolicyReconciler) syncPolicy(ctx context.Context, spec *zitadelv1alpha2.LockoutPolicySpec, currentResp *management.GetLockoutPolicyResponse) error {
+func (r *LockoutPolicyReconciler) syncPolicy(ctx context.Context, spec *zitadelv1alpha2.LockoutPolicySpec) error {
+	currentResp, err := r.Zitadel.Management().GetLockoutPolicy(ctx, &management.GetLockoutPolicyRequest{})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("getting lockout policy: %w", err)
+	}
+
 	needsUpdate := true
 	if currentResp != nil && currentResp.GetPolicy() != nil {
 		p := currentResp.GetPolicy()
@@ -118,7 +107,7 @@ func (r *LockoutPolicyReconciler) syncPolicy(ctx context.Context, spec *zitadelv
 		return nil
 	}
 
-	_, err := r.Zitadel.Management().UpdateCustomLockoutPolicy(ctx, &management.UpdateCustomLockoutPolicyRequest{
+	_, err = r.Zitadel.Management().UpdateCustomLockoutPolicy(ctx, &management.UpdateCustomLockoutPolicyRequest{
 		MaxPasswordAttempts: spec.MaxPasswordAttempts,
 		MaxOtpAttempts:      spec.MaxOtpAttempts,
 	})
