@@ -73,7 +73,7 @@ func (r *PersonalAccessTokenReconciler) Reconcile(ctx context.Context, req ctrl.
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
 		if cr.Status.TokenId != "" {
-			_, err := r.Zitadel.Management().RemovePersonalAccessToken(ctx, &management.RemovePersonalAccessTokenRequest{
+			_, err := r.Zitadel.Management().RemovePersonalAccessToken(ctx, &management.RemovePersonalAccessTokenRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				UserId:  userID,
 				TokenId: cr.Status.TokenId,
 			})
@@ -140,7 +140,7 @@ func (r *PersonalAccessTokenReconciler) ensureToken(ctx context.Context, cr *zit
 	}
 
 	// Create personal access token via Management API.
-	tokenResp, err := r.Zitadel.Management().AddPersonalAccessToken(ctx, &management.AddPersonalAccessTokenRequest{
+	tokenResp, err := r.Zitadel.Management().AddPersonalAccessToken(ctx, &management.AddPersonalAccessTokenRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		UserId:         userID,
 		ExpirationDate: timestamppb.New(expiration),
 	})

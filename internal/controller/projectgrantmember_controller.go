@@ -84,7 +84,7 @@ func (r *ProjectGrantMemberReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Management().RemoveProjectGrantMember(ctx, &management.RemoveProjectGrantMemberRequest{
+		_, err := r.Zitadel.Management().RemoveProjectGrantMember(ctx, &management.RemoveProjectGrantMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			ProjectId: projectID,
 			GrantId:   grantID,
 			UserId:    userID,
@@ -131,7 +131,7 @@ func (r *ProjectGrantMemberReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 func (r *ProjectGrantMemberReconciler) ensureProjectGrantMember(ctx context.Context, projectID, grantID, userID string, desiredRoles []string) error {
 	// Check if member already exists.
-	listResp, err := r.Zitadel.Management().ListProjectGrantMembers(ctx, &management.ListProjectGrantMembersRequest{
+	listResp, err := r.Zitadel.Management().ListProjectGrantMembers(ctx, &management.ListProjectGrantMembersRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId: projectID,
 		GrantId:   grantID,
 		Query:     &object.ListQuery{Limit: 100},
@@ -153,7 +153,7 @@ func (r *ProjectGrantMemberReconciler) ensureProjectGrantMember(ctx context.Cont
 		if m.GetUserId() == userID {
 			// Member exists, update roles if needed.
 			if !rolesEqual(m.GetRoles(), desiredRoles) {
-				_, err := r.Zitadel.Management().UpdateProjectGrantMember(ctx, &management.UpdateProjectGrantMemberRequest{
+				_, err := r.Zitadel.Management().UpdateProjectGrantMember(ctx, &management.UpdateProjectGrantMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 					ProjectId: projectID,
 					GrantId:   grantID,
 					UserId:    userID,
@@ -168,7 +168,7 @@ func (r *ProjectGrantMemberReconciler) ensureProjectGrantMember(ctx context.Cont
 	}
 
 	// Create new member.
-	_, err = r.Zitadel.Management().AddProjectGrantMember(ctx, &management.AddProjectGrantMemberRequest{
+	_, err = r.Zitadel.Management().AddProjectGrantMember(ctx, &management.AddProjectGrantMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId: projectID,
 		GrantId:   grantID,
 		UserId:    userID,

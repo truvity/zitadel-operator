@@ -34,12 +34,35 @@ func (r *DefaultLockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Handle deletion: reset to safe defaults.
+	// Singleton conflict detection: only the earliest-created CR manages the instance.
+	var list zitadelv1alpha2.DefaultLockoutPolicyList
+	if err := r.List(ctx, &list); err != nil {
+		return ctrl.Result{}, err
+	}
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.UID == cr.UID {
+			continue
+		}
+		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
+			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
+				fmt.Sprintf("another DefaultLockoutPolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
+			cr.Status.Ready = false
+			_ = r.Status().Update(ctx, &cr)
+			return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		}
+	}
+
+	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, _ = r.Zitadel.Admin().UpdateLockoutPolicy(ctx, &admin.UpdateLockoutPolicyRequest{
-			MaxPasswordAttempts: 0,
-			MaxOtpAttempts:      0,
-		})
+		if shouldResetOnDelete(&cr) {
+			// Zitadel documented instance defaults: no lockout (MaxPasswordAttempts=0, MaxOtpAttempts=0).
+			_, _ = r.Zitadel.Admin().UpdateLockoutPolicy(ctx, &admin.UpdateLockoutPolicyRequest{
+				MaxPasswordAttempts: 0,
+				MaxOtpAttempts:      0,
+			})
+			logger.Info("reset instance lockout policy to defaults (reset-on-delete annotation present)")
+		}
 		if removeFinalizer(&cr) {
 			if err := r.Update(ctx, &cr); err != nil {
 				return ctrl.Result{}, err

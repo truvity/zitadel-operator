@@ -347,28 +347,35 @@ func TestDefaultLockoutPolicy_DuplicateCreation(t *testing.T) {
 	if err := k8sClient.Create(ctx, cr2); err != nil {
 		t.Fatalf("creating second DefaultLockoutPolicy: %v", err)
 	}
+
+	// Wait for the second CR to get DuplicateSingleton condition.
+	time.Sleep(5 * time.Second)
 	var r2 zitadelv1alpha2.DefaultLockoutPolicy
-	waitForReady(t, ctx, client.ObjectKeyFromObject(cr2), &r2, 30*time.Second)
-
-	// Both should be Ready (they both successfully called UpdateLockoutPolicy).
-	// The last one wins — verify the actual value in Zitadel.
-	time.Sleep(3 * time.Second)
-	resp, err := zitadelClient.Admin().GetLockoutPolicy(ctx, &admin.GetLockoutPolicyRequest{})
-	if err != nil {
-		t.Fatalf("getting lockout policy: %v", err)
-	}
-	actual := resp.GetPolicy().GetMaxPasswordAttempts()
-	t.Logf("actual maxPasswordAttempts after both reconcile: %d (last writer wins)", actual)
-
-	// Both CRs are Ready=true — this is expected behavior (singletons are last-writer-wins).
-	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cr1), &r1); err != nil {
-		t.Fatalf("getting cr1: %v", err)
-	}
 	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cr2), &r2); err != nil {
 		t.Fatalf("getting cr2: %v", err)
 	}
-	if !r1.Status.Ready || !r2.Status.Ready {
-		t.Fatal("expected both CRs to be ready (last-writer-wins semantics)")
+
+	// Second CR should have Ready=false with DuplicateSingleton reason.
+	if r2.Status.Ready {
+		t.Fatal("expected second CR to have Ready=false (DuplicateSingleton)")
+	}
+	foundDuplicateCondition := false
+	for _, c := range r2.Status.Conditions {
+		if c.Type == "Ready" && c.Reason == "DuplicateSingleton" {
+			foundDuplicateCondition = true
+			break
+		}
+	}
+	if !foundDuplicateCondition {
+		t.Fatal("expected DuplicateSingleton condition on second CR")
+	}
+
+	// First CR should still be Ready=true.
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cr1), &r1); err != nil {
+		t.Fatalf("getting cr1: %v", err)
+	}
+	if !r1.Status.Ready {
+		t.Fatal("expected first CR to remain Ready=true")
 	}
 
 	// Cleanup.
@@ -376,5 +383,108 @@ func TestDefaultLockoutPolicy_DuplicateCreation(t *testing.T) {
 	_ = k8sClient.Delete(ctx, cr2)
 	waitForDeletion(t, ctx, client.ObjectKeyFromObject(cr1), &zitadelv1alpha2.DefaultLockoutPolicy{}, 30*time.Second)
 	waitForDeletion(t, ctx, client.ObjectKeyFromObject(cr2), &zitadelv1alpha2.DefaultLockoutPolicy{}, 30*time.Second)
-	t.Log("duplicate creation test complete — last writer wins")
+	t.Log("duplicate creation test complete — earliest CR wins, duplicate gets DuplicateSingleton")
+}
+
+// --- Reset-on-Delete Annotation ---
+
+func TestDefaultLockoutPolicy_ResetOnDeleteAnnotation(t *testing.T) {
+	ctx := context.Background()
+	name := fmt.Sprintf("reset-lockout-%d", time.Now().UnixMilli())
+
+	// Create with reset-on-delete annotation and custom values.
+	cr := &zitadelv1alpha2.DefaultLockoutPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Annotations: map[string]string{
+				"zitadel.truvity.io/reset-on-delete": "true",
+			},
+		},
+		Spec: zitadelv1alpha2.DefaultLockoutPolicySpec{
+			LockoutPolicyFields: zitadelv1alpha2.LockoutPolicyFields{
+				MaxPasswordAttempts: 10,
+				MaxOtpAttempts:      5,
+			},
+		},
+	}
+	if err := k8sClient.Create(ctx, cr); err != nil {
+		t.Fatalf("creating DefaultLockoutPolicy: %v", err)
+	}
+
+	var reconciled zitadelv1alpha2.DefaultLockoutPolicy
+	waitForReady(t, ctx, client.ObjectKeyFromObject(cr), &reconciled, 30*time.Second)
+
+	// Verify the custom values are applied.
+	resp, err := zitadelClient.Admin().GetLockoutPolicy(ctx, &admin.GetLockoutPolicyRequest{})
+	if err != nil {
+		t.Fatalf("getting lockout policy: %v", err)
+	}
+	if resp.GetPolicy().GetMaxPasswordAttempts() != 10 {
+		t.Fatalf("expected maxPasswordAttempts=10, got %d", resp.GetPolicy().GetMaxPasswordAttempts())
+	}
+
+	// Delete — should reset to defaults because annotation is present.
+	_ = k8sClient.Delete(ctx, cr)
+	waitForDeletion(t, ctx, client.ObjectKeyFromObject(cr), &zitadelv1alpha2.DefaultLockoutPolicy{}, 30*time.Second)
+
+	// Verify the policy was reset to Zitadel defaults (0, 0).
+	resp, err = zitadelClient.Admin().GetLockoutPolicy(ctx, &admin.GetLockoutPolicyRequest{})
+	if err != nil {
+		t.Fatalf("getting lockout policy after delete: %v", err)
+	}
+	if resp.GetPolicy().GetMaxPasswordAttempts() != 0 {
+		t.Fatalf("expected maxPasswordAttempts=0 after reset-on-delete, got %d", resp.GetPolicy().GetMaxPasswordAttempts())
+	}
+	if resp.GetPolicy().GetMaxOtpAttempts() != 0 {
+		t.Fatalf("expected maxOtpAttempts=0 after reset-on-delete, got %d", resp.GetPolicy().GetMaxOtpAttempts())
+	}
+	t.Log("reset-on-delete annotation test complete — policy reset to defaults on delete")
+}
+
+// --- Delete Without Annotation (leave-as-is) ---
+
+func TestDefaultLockoutPolicy_DeleteWithoutAnnotation(t *testing.T) {
+	ctx := context.Background()
+	name := fmt.Sprintf("noanno-lockout-%d", time.Now().UnixMilli())
+
+	// Create WITHOUT reset-on-delete annotation.
+	cr := &zitadelv1alpha2.DefaultLockoutPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: zitadelv1alpha2.DefaultLockoutPolicySpec{
+			LockoutPolicyFields: zitadelv1alpha2.LockoutPolicyFields{
+				MaxPasswordAttempts: 8,
+				MaxOtpAttempts:      4,
+			},
+		},
+	}
+	if err := k8sClient.Create(ctx, cr); err != nil {
+		t.Fatalf("creating DefaultLockoutPolicy: %v", err)
+	}
+
+	var reconciled zitadelv1alpha2.DefaultLockoutPolicy
+	waitForReady(t, ctx, client.ObjectKeyFromObject(cr), &reconciled, 30*time.Second)
+
+	// Verify the custom values are applied.
+	resp, err := zitadelClient.Admin().GetLockoutPolicy(ctx, &admin.GetLockoutPolicyRequest{})
+	if err != nil {
+		t.Fatalf("getting lockout policy: %v", err)
+	}
+	if resp.GetPolicy().GetMaxPasswordAttempts() != 8 {
+		t.Fatalf("expected maxPasswordAttempts=8, got %d", resp.GetPolicy().GetMaxPasswordAttempts())
+	}
+
+	// Delete — should NOT reset (no annotation).
+	_ = k8sClient.Delete(ctx, cr)
+	waitForDeletion(t, ctx, client.ObjectKeyFromObject(cr), &zitadelv1alpha2.DefaultLockoutPolicy{}, 30*time.Second)
+
+	// Verify the policy was LEFT AS-IS (still 8, 4).
+	resp, err = zitadelClient.Admin().GetLockoutPolicy(ctx, &admin.GetLockoutPolicyRequest{})
+	if err != nil {
+		t.Fatalf("getting lockout policy after delete: %v", err)
+	}
+	if resp.GetPolicy().GetMaxPasswordAttempts() != 8 {
+		t.Fatalf("expected maxPasswordAttempts=8 (left as-is), got %d", resp.GetPolicy().GetMaxPasswordAttempts())
+	}
+	t.Log("delete without annotation test complete — policy left as-is")
 }

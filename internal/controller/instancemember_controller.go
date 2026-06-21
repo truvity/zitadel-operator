@@ -48,7 +48,7 @@ func (r *InstanceMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Admin().RemoveIAMMember(ctx, &admin.RemoveIAMMemberRequest{
+		_, err := r.Zitadel.Admin().RemoveIAMMember(ctx, &admin.RemoveIAMMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			UserId: userID,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
@@ -70,14 +70,14 @@ func (r *InstanceMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Ensure instance member exists — try update first, then add.
-	_, err = r.Zitadel.Admin().UpdateIAMMember(ctx, &admin.UpdateIAMMemberRequest{
+	_, err = r.Zitadel.Admin().UpdateIAMMember(ctx, &admin.UpdateIAMMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		UserId: userID,
 		Roles:  cr.Spec.Roles,
 	})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			// Member doesn't exist, add it.
-			_, err = r.Zitadel.Admin().AddIAMMember(ctx, &admin.AddIAMMemberRequest{
+			_, err = r.Zitadel.Admin().AddIAMMember(ctx, &admin.AddIAMMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				UserId: userID,
 				Roles:  cr.Spec.Roles,
 			})

@@ -184,7 +184,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
 	// List existing roles.
-	listResp, err := r.Zitadel.Management().ListProjectRoles(ctx, &management.ListProjectRolesRequest{
+	listResp, err := r.Zitadel.Management().ListProjectRoles(ctx, &management.ListProjectRolesRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId: projectID,
 		Query:     &object.ListQuery{Limit: 100},
 	})
@@ -207,7 +207,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	// Add missing roles.
 	for _, role := range desiredRoles {
 		if !existing[role] {
-			_, err := r.Zitadel.Management().AddProjectRole(ctx, &management.AddProjectRoleRequest{
+			_, err := r.Zitadel.Management().AddProjectRole(ctx, &management.AddProjectRoleRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				ProjectId:   projectID,
 				RoleKey:     role,
 				DisplayName: role,
@@ -221,7 +221,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	// Remove extra roles.
 	for roleKey := range existing {
 		if !desired[roleKey] {
-			_, err := r.Zitadel.Management().RemoveProjectRole(ctx, &management.RemoveProjectRoleRequest{
+			_, err := r.Zitadel.Management().RemoveProjectRole(ctx, &management.RemoveProjectRoleRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				ProjectId: projectID,
 				RoleKey:   roleKey,
 			})

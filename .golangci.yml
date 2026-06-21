@@ -28,8 +28,7 @@ linters:
     staticcheck:
       checks:
         - "all"
-        - "-SA1019"  # suppress deprecated API warnings (Zitadel SDK v1 methods marked deprecated for v2)
-        - "-ST1003"  # suppress naming convention warnings (CRD struct fields must match json camelCase tags)
+        - "-ST1003"  # CRD types use json camelCase field names that conflict with Go ID naming (e.g., IdpId vs IdpID). Cannot fix without breaking the CRD API contract.
 
 formatters:
   enable:

@@ -31,6 +31,11 @@ const (
 
 	// ConditionTypeSynced indicates the resource has been synced with Zitadel.
 	ConditionTypeSynced = "Synced"
+
+	// AnnotationResetOnDelete controls whether instance-default singletons
+	// reset to baseline values when the CR is deleted.
+	// Default: "false" (leave instance state untouched on delete).
+	AnnotationResetOnDelete = "zitadel.truvity.io/reset-on-delete"
 )
 
 // addFinalizer adds the finalizer to the object if not already present.
@@ -49,6 +54,17 @@ func removeFinalizer(obj client.Object) bool {
 		return true
 	}
 	return false
+}
+
+// shouldResetOnDelete returns true if the CR has the reset-on-delete annotation set to "true".
+// Instance-default singleton policies do NOT mutate instance state on delete by default —
+// they simply stop managing the resource. Opt-in via annotation for explicit reset.
+func shouldResetOnDelete(obj client.Object) bool {
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		return false
+	}
+	return annotations[AnnotationResetOnDelete] == "true"
 }
 
 // generationChangedPredicate returns a predicate that filters out status-only

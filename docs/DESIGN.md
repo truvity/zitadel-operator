@@ -1174,3 +1174,38 @@ spec:
 ```
 
 If the referenced Secret doesn't exist, the reconciler sets `Ready=False` with reason `SecretNotFound` and requeues (10s). Once the Secret appears, the next reconcile succeeds.
+
+---
+
+## Instance-Default Singleton Semantics
+
+### Delete Behavior (Reset-on-Delete)
+
+Instance-default singleton policies (DefaultLockoutPolicy, DefaultPasswordComplexityPolicy, etc.) manage global Zitadel instance state. Deleting the CR has two possible behaviors:
+
+1. **Default (no annotation):** The operator removes the finalizer and stops managing the resource. The Zitadel instance state is left as-is. This is the safe default — removing a CR from the cluster should not unexpectedly mutate production instance configuration.
+
+2. **Opt-in reset (`zitadel.truvity.io/reset-on-delete: "true"`):** When this annotation is present, the operator resets the policy to Zitadel's documented instance defaults before removing the finalizer. This is useful for cleanup/testing scenarios.
+
+```yaml
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: DefaultLockoutPolicy
+metadata:
+  name: my-lockout
+  annotations:
+    zitadel.truvity.io/reset-on-delete: "true"  # opt-in: reset on delete
+spec:
+  maxPasswordAttempts: 5
+```
+
+### Singleton Conflict Detection
+
+Only one CR of each Default* kind should manage the instance at any time. If multiple CRs of the same kind exist:
+
+- The CR with the **earliest creation timestamp** wins and proceeds normally.
+- Later CRs are marked `Ready=False` with reason `DuplicateSingleton` and do not reconcile against the Zitadel API.
+- The duplicate CR requeues periodically — if the earlier CR is deleted, the next-earliest CR takes over.
+
+For `DefaultMessageText`, uniqueness is scoped per `(type, language)` pair rather than globally per kind, since multiple message types can coexist.
+
+This prevents conflicting controllers from fighting over the same singleton resource and provides clear status feedback about which CR is active.

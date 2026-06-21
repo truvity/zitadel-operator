@@ -35,15 +35,21 @@ All notable changes to the zitadel-operator are documented here.
 - **OrgMember** — org-level role assignment
 - **MessageText** — org-scoped custom message text with type discriminator (init, passwordReset, verifyEmail, etc.)
 
+#### Singleton Governance
+- **Reset-on-delete annotation** (`zitadel.truvity.io/reset-on-delete: "true"`) — opt-in reset of instance-default policies to Zitadel baseline values on CR deletion. Default behavior: leave instance state untouched.
+- **Singleton conflict detection** — only the earliest-created CR per Default* kind manages the instance. Duplicates get `Ready=False, reason=DuplicateSingleton`.
+
 #### Infrastructure
 - Shared policy field structs (`policy_fields.go`) — DRY between org-scoped and instance-default variants
 - `SecretKeyRef` type for consistent secret reference pattern across IdPs and providers
 - `resolveUserIdIncludingHuman()` — resolves both MachineUser and HumanUser refs
+- `shouldResetOnDelete()` helper — annotation-based opt-in for reset behavior
 
 ### Changed
 - CRD count: 17 → 42 (25 new resources)
-- `.golangci.yml` — suppressed SA1019 (deprecated SDK APIs) and ST1003 (CRD naming conventions)
+- `.golangci.yml` — removed global SA1019 suppression; deprecated SDK calls now have per-site `//nolint:staticcheck` with migration rationale
 - Helm RBAC — extended ClusterRole and Role for all 39 resource types
+- Default* controllers — delete no longer resets instance state by default (opt-in via annotation)
 
 ### Integration Tests
 - 33 new integration test cases (happy path + negative) against real Zitadel Cloud

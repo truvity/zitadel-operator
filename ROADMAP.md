@@ -81,6 +81,9 @@ Includes negative cases, condition verification, idempotent reconcile, and edge 
 5. **No CRD for connection** — instance config is deployment config, not a reconciled resource
 6. **Terraform provider parity** — resource coverage matches the Zitadel Terraform provider for org/project scope
 
+### Tech Debt
+- [ ] Migrate deprecated SDK calls to v2 APIs once stable (SA1019 nolint markers): HumanUser (AddHumanUser→CreateUser), OrgMember/InstanceMember (permission service v2), MachineUser, ApplicationKey, Domain, OrgMetadata, PersonalAccessToken, Project roles, ProjectGrant, ProjectGrantMember, ProjectMember, UserGrant
+
 ## Testing Model
 
 | Package              | Purpose                                      | Command                                             |

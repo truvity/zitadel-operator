@@ -34,12 +34,41 @@ func (r *DefaultMessageTextReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Singleton conflict detection: only the earliest-created CR manages the instance.
+	// For DefaultMessageText, uniqueness is per (type, language) pair — but we use
+	// the same earliest-creation-timestamp approach for simplicity.
+	var list zitadelv1alpha2.DefaultMessageTextList
+	if err := r.List(ctx, &list); err != nil {
+		return ctrl.Result{}, err
+	}
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.UID == cr.UID {
+			continue
+		}
+		// Only conflict if same type and language.
+		if other.Spec.Type == cr.Spec.Type &&
+			other.Spec.Language == cr.Spec.Language &&
+			other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
+			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
+				fmt.Sprintf("another DefaultMessageText %s/%s (created earlier) is already managing type=%s language=%s", other.Namespace, other.Name, other.Spec.Type, other.Spec.Language))
+			cr.Status.Ready = false
+			_ = r.Status().Update(ctx, &cr)
+			return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		}
+	}
+
 	spec := &cr.Spec.MessageTextFields
 
 	// Handle deletion: reset to default.
 	if !cr.DeletionTimestamp.IsZero() {
-		if err := r.resetDefaultMessageText(ctx, spec); err != nil {
-			logger.Info("could not reset default message text", "type", spec.Type, "error", err)
+		if shouldResetOnDelete(&cr) {
+			// Zitadel's ResetCustom*MessageTextToDefault API restores the built-in message template.
+			if err := r.resetDefaultMessageText(ctx, spec); err != nil {
+				logger.Info("could not reset default message text", "type", spec.Type, "error", err)
+			} else {
+				logger.Info("reset instance message text to defaults (reset-on-delete annotation present)", "type", spec.Type)
+			}
 		}
 		if removeFinalizer(&cr) {
 			if err := r.Update(ctx, &cr); err != nil {

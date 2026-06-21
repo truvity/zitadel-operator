@@ -54,7 +54,7 @@ func (r *OrgMetadataReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Management().RemoveOrgMetadata(ctx, &management.RemoveOrgMetadataRequest{
+		_, err := r.Zitadel.Management().RemoveOrgMetadata(ctx, &management.RemoveOrgMetadataRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			Key: cr.Spec.Key,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
@@ -76,7 +76,7 @@ func (r *OrgMetadataReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Set metadata (idempotent — always sets the value).
-	_, err = r.Zitadel.Management().SetOrgMetadata(ctx, &management.SetOrgMetadataRequest{
+	_, err = r.Zitadel.Management().SetOrgMetadata(ctx, &management.SetOrgMetadataRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		Key:   cr.Spec.Key,
 		Value: []byte(cr.Spec.Value),
 	})

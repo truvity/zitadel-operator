@@ -230,7 +230,7 @@ func (r *HumanUserReconciler) ensureHumanUser(ctx context.Context, cr *zitadelv1
 		}
 	}
 
-	resp, err := r.Zitadel.User().AddHumanUser(ctx, addReq)
+	resp, err := r.Zitadel.User().AddHumanUser(ctx, addReq) //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 	if err != nil {
 		return "", fmt.Errorf("adding human user: %w", err)
 	}

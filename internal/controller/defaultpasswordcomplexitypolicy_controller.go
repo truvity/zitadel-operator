@@ -34,15 +34,38 @@ func (r *DefaultPasswordComplexityPolicyReconciler) Reconcile(ctx context.Contex
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Handle deletion: reset to safe defaults.
+	// Singleton conflict detection: only the earliest-created CR manages the instance.
+	var list zitadelv1alpha2.DefaultPasswordComplexityPolicyList
+	if err := r.List(ctx, &list); err != nil {
+		return ctrl.Result{}, err
+	}
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.UID == cr.UID {
+			continue
+		}
+		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
+			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
+				fmt.Sprintf("another DefaultPasswordComplexityPolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
+			cr.Status.Ready = false
+			_ = r.Status().Update(ctx, &cr)
+			return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		}
+	}
+
+	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, _ = r.Zitadel.Admin().UpdatePasswordComplexityPolicy(ctx, &admin.UpdatePasswordComplexityPolicyRequest{
-			MinLength:    8,
-			HasLowercase: true,
-			HasUppercase: true,
-			HasNumber:    true,
-			HasSymbol:    false,
-		})
+		if shouldResetOnDelete(&cr) {
+			// Zitadel documented instance defaults: MinLength=8, HasLowercase=true, HasUppercase=true, HasNumber=true, HasSymbol=false.
+			_, _ = r.Zitadel.Admin().UpdatePasswordComplexityPolicy(ctx, &admin.UpdatePasswordComplexityPolicyRequest{
+				MinLength:    8,
+				HasLowercase: true,
+				HasUppercase: true,
+				HasNumber:    true,
+				HasSymbol:    false,
+			})
+			logger.Info("reset instance password complexity policy to defaults (reset-on-delete annotation present)")
+		}
 		if removeFinalizer(&cr) {
 			if err := r.Update(ctx, &cr); err != nil {
 				return ctrl.Result{}, err

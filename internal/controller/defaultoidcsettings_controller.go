@@ -35,14 +35,37 @@ func (r *DefaultOIDCSettingsReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Handle deletion: reset to safe defaults.
+	// Singleton conflict detection: only the earliest-created CR manages the instance.
+	var list zitadelv1alpha2.DefaultOIDCSettingsList
+	if err := r.List(ctx, &list); err != nil {
+		return ctrl.Result{}, err
+	}
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.UID == cr.UID {
+			continue
+		}
+		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
+			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
+				fmt.Sprintf("another DefaultOIDCSettings %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
+			cr.Status.Ready = false
+			_ = r.Status().Update(ctx, &cr)
+			return ctrl.Result{RequeueAfter: requeueInterval}, nil
+		}
+	}
+
+	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, _ = r.Zitadel.Admin().UpdateOIDCSettings(ctx, &admin.UpdateOIDCSettingsRequest{
-			AccessTokenLifetime:        durationpb.New(12 * time.Hour),
-			IdTokenLifetime:            durationpb.New(12 * time.Hour),
-			RefreshTokenIdleExpiration: durationpb.New(720 * time.Hour),
-			RefreshTokenExpiration:     durationpb.New(2160 * time.Hour),
-		})
+		if shouldResetOnDelete(&cr) {
+			// Zitadel documented instance defaults: 12h/12h/720h/2160h.
+			_, _ = r.Zitadel.Admin().UpdateOIDCSettings(ctx, &admin.UpdateOIDCSettingsRequest{
+				AccessTokenLifetime:        durationpb.New(12 * time.Hour),
+				IdTokenLifetime:            durationpb.New(12 * time.Hour),
+				RefreshTokenIdleExpiration: durationpb.New(720 * time.Hour),
+				RefreshTokenExpiration:     durationpb.New(2160 * time.Hour),
+			})
+			logger.Info("reset instance OIDC settings to defaults (reset-on-delete annotation present)")
+		}
 		if removeFinalizer(&cr) {
 			if err := r.Update(ctx, &cr); err != nil {
 				return ctrl.Result{}, err

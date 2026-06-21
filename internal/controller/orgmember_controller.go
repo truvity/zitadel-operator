@@ -64,7 +64,7 @@ func (r *OrgMemberReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Management().RemoveOrgMember(ctx, &management.RemoveOrgMemberRequest{
+		_, err := r.Zitadel.Management().RemoveOrgMember(ctx, &management.RemoveOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			UserId: userID,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
@@ -86,14 +86,14 @@ func (r *OrgMemberReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Ensure org member exists — try update first, then add.
-	_, err = r.Zitadel.Management().UpdateOrgMember(ctx, &management.UpdateOrgMemberRequest{
+	_, err = r.Zitadel.Management().UpdateOrgMember(ctx, &management.UpdateOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		UserId: userID,
 		Roles:  cr.Spec.Roles,
 	})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			// Member doesn't exist, add it.
-			_, err = r.Zitadel.Management().AddOrgMember(ctx, &management.AddOrgMemberRequest{
+			_, err = r.Zitadel.Management().AddOrgMember(ctx, &management.AddOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				UserId: userID,
 				Roles:  cr.Spec.Roles,
 			})
