@@ -1,5 +1,8 @@
 # Zitadel Operator development commands
 
+# Disable go.work (parent workspace interferes with controller-gen)
+export GOWORK := "off"
+
 # Generate deepcopy methods, CRD manifests, and sync to Helm chart
 generate:
     controller-gen object paths="./api/..."

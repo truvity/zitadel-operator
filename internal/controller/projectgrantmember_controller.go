@@ -84,7 +84,7 @@ func (r *ProjectGrantMemberReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Management().RemoveProjectGrantMember(ctx, &management.RemoveProjectGrantMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+		_, err := r.Zitadel.Management().RemoveProjectGrantMember(ctx, &management.RemoveProjectGrantMemberRequest{
 			ProjectId: projectID,
 			GrantId:   grantID,
 			UserId:    userID,
@@ -131,7 +131,7 @@ func (r *ProjectGrantMemberReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 func (r *ProjectGrantMemberReconciler) ensureProjectGrantMember(ctx context.Context, projectID, grantID, userID string, desiredRoles []string) error {
 	// Check if member already exists.
-	listResp, err := r.Zitadel.Management().ListProjectGrantMembers(ctx, &management.ListProjectGrantMembersRequest{ //nolint:staticcheck // no v2 equivalent yet
+	listResp, err := r.Zitadel.Management().ListProjectGrantMembers(ctx, &management.ListProjectGrantMembersRequest{
 		ProjectId: projectID,
 		GrantId:   grantID,
 		Query:     &object.ListQuery{Limit: 100},
@@ -153,7 +153,7 @@ func (r *ProjectGrantMemberReconciler) ensureProjectGrantMember(ctx context.Cont
 		if m.GetUserId() == userID {
 			// Member exists, update roles if needed.
 			if !rolesEqual(m.GetRoles(), desiredRoles) {
-				_, err := r.Zitadel.Management().UpdateProjectGrantMember(ctx, &management.UpdateProjectGrantMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+				_, err := r.Zitadel.Management().UpdateProjectGrantMember(ctx, &management.UpdateProjectGrantMemberRequest{
 					ProjectId: projectID,
 					GrantId:   grantID,
 					UserId:    userID,
@@ -168,7 +168,7 @@ func (r *ProjectGrantMemberReconciler) ensureProjectGrantMember(ctx context.Cont
 	}
 
 	// Create new member.
-	_, err = r.Zitadel.Management().AddProjectGrantMember(ctx, &management.AddProjectGrantMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+	_, err = r.Zitadel.Management().AddProjectGrantMember(ctx, &management.AddProjectGrantMemberRequest{
 		ProjectId: projectID,
 		GrantId:   grantID,
 		UserId:    userID,

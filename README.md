@@ -1,12 +1,17 @@
 # Zitadel Operator
 
+[![CI](https://github.com/truvity/zitadel-operator/actions/workflows/ci.yaml/badge.svg)](https://github.com/truvity/zitadel-operator/actions/workflows/ci.yaml)
+[![Release](https://github.com/truvity/zitadel-operator/actions/workflows/release.yaml/badge.svg)](https://github.com/truvity/zitadel-operator/actions/workflows/release.yaml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/truvity/zitadel-operator)](https://goreportcard.com/report/github.com/truvity/zitadel-operator)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Kubernetes operator for managing [Zitadel](https://zitadel.com) resources declaratively via Custom Resource Definitions.
 
 Works with Zitadel Cloud and self-hosted Zitadel instances.
 
 ## Features
 
-- **17 CRDs** covering organization, project, application, user, and policy management
+- **42 CRDs** covering organization, project, application, user, policy, and notification management
 - **Structured status conditions** — `Ready=True/False` with reason codes and messages
 - **Hierarchical references** — Organization → Project → App/User with automatic resolution
 - **Config file driven** — single `--config` flag, no CLI argument wall
@@ -34,26 +39,51 @@ These require the operator SA to have `PROJECT_OWNER` membership on the target p
 
 These require the operator SA to have `ORG_OWNER` role in the organization.
 
-| CRD                     | Description                                 | Secret Output |
-| ----------------------- | ------------------------------------------- | ------------- |
-| **Organization**        | Create/manage a Zitadel organization        | —             |
-| **Project**             | Create/manage a project with role sync      | —             |
-| **MachineUser**         | Create a service account with JWT key       | `key.json`    |
-| **PersonalAccessToken** | Personal access token for users             | `token`       |
-| **UserGrant**           | Assign project roles to a user              | —             |
-| **ProjectGrant**        | Share a project with another organization   | —             |
-| **OrgMetadata**         | Key-value metadata on the organization      | —             |
-| **Domain**              | Register an org domain for domain discovery | —             |
-| **IdentityProvider**    | Configure generic OIDC identity provider    | —             |
+| CRD                          | Description                                 | Secret Output |
+| ---------------------------- | ------------------------------------------- | ------------- |
+| **Organization**             | Create/manage a Zitadel organization        | —             |
+| **Project**                  | Create/manage a project with role sync      | —             |
+| **MachineUser**              | Create a service account with JWT key       | `key.json`    |
+| **PersonalAccessToken**      | Personal access token for users             | `token`       |
+| **UserGrant**                | Assign project roles to a user              | —             |
+| **ProjectGrant**             | Share a project with another organization   | —             |
+| **OrgMetadata**              | Key-value metadata on the organization      | —             |
+| **Domain**                   | Register an org domain for domain discovery | —             |
+| **IdentityProvider**         | Configure generic OIDC identity provider    | —             |
+| **LoginPolicy**              | Org-scoped login policy                     | —             |
+| **PasswordComplexityPolicy** | Org-scoped password complexity policy       | —             |
+| **LockoutPolicy**            | Org-scoped lockout policy                   | —             |
+| **HumanUser**                | Create/manage human users                   | —             |
+| **OrgMember**                | Assign org-level roles to users             | —             |
+| **LabelPolicy**              | Org-scoped branding/label policy            | —             |
+| **NotificationPolicy**       | Org-scoped notification policy              | —             |
+| **PasswordAgePolicy**        | Org-scoped password age policy              | —             |
+| **PrivacyPolicy**            | Org-scoped privacy policy                   | —             |
+| **MessageText**              | Org-scoped custom message text              | —             |
 
 ### Instance-Level Resources (IAM_OWNER)
 
 These require the operator SA to have `IAM_OWNER` role (instance administrator).
 
-| CRD                 | Description                        | Notes                          |
-| ------------------- | ---------------------------------- | ------------------------------ |
-| **ActionTarget**    | Webhook target for Actions v2      | Requires instance-level access |
-| **ActionExecution** | Bind targets to trigger conditions | Requires instance-level access |
+| CRD                     | Description                                    | Notes                          |
+| ----------------------- | ---------------------------------------------- | ------------------------------ |
+| **ActionTarget**        | Webhook target for Actions v2                  | Requires instance-level access |
+| **ActionExecution**     | Bind targets to trigger conditions             | Requires instance-level access |
+| **DefaultLoginPolicy**  | Instance default login policy                  | Singleton per instance         |
+| **DefaultDomainPolicy** | Instance default domain policy                 | Singleton per instance         |
+| **GoogleIdP**           | Instance-scoped Google identity provider       | Exposes `status.idpID` for ref |
+| **EmailProvider**       | Email delivery provider (SMTP or HTTP webhook) | Activated after creation       |
+| **DefaultLockoutPolicy** | Instance default lockout policy | Singleton per instance |
+| **DefaultPasswordComplexityPolicy** | Instance default password complexity | Singleton per instance |
+| **DefaultPasswordAgePolicy** | Instance default password age | Singleton per instance |
+| **DefaultNotificationPolicy** | Instance default notification policy | Singleton per instance |
+| **DefaultLabelPolicy** | Instance default label/branding policy | Singleton per instance |
+| **DefaultPrivacyPolicy** | Instance default privacy policy | Singleton per instance |
+| **DefaultOIDCSettings** | Instance default OIDC settings (token lifetimes) | Singleton per instance |
+| **GitHubIdP** | Instance-scoped GitHub identity provider | Exposes `status.idpID` for ref |
+| **SmsProvider** | SMS delivery provider (Twilio or HTTP) | Activated after creation |
+| **InstanceMember** | Instance-level role assignment | IAM_OWNER, IAM_ORG_MANAGER |
+| **DefaultMessageText** | Instance default message text (per type+language) | One CR per type+language |
 
 > **Note:** On Zitadel Cloud, instance-level resources require the SA to be an instance admin.
 > For most deployments, use the org-level and project-level CRDs only.

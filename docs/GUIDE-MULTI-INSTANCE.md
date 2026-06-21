@@ -49,12 +49,12 @@ This prevents accidental cross-instance placement — for example, a customer `O
 
 ### Behavior Matrix
 
-| Label state                     | Operator behavior                                         |
-| ------------------------------- | --------------------------------------------------------- |
-| Label present, value matches    | Reconcile normally                                        |
-| Label present, value mismatches | Reject — sets `ProjectScopeMismatch` condition on the CR  |
-| Label missing                   | Reject (fail-closed when `projectScopeLabel` is set)      |
-| Config empty (`""`)             | No enforcement — backward-compatible                      |
+| Label state                     | Operator behavior                                        |
+| ------------------------------- | -------------------------------------------------------- |
+| Label present, value matches    | Reconcile normally                                       |
+| Label present, value mismatches | Reject — sets `ProjectScopeMismatch` condition on the CR |
+| Label missing                   | Reject (fail-closed when `projectScopeLabel` is set)     |
+| Config empty (`""`)             | No enforcement — backward-compatible                     |
 
 ### Example Namespace Labels
 
@@ -76,10 +76,10 @@ A namespace can carry both labels if resources from both operators are expected 
 
 ### Two Patterns
 
-| Pattern                  | Operator  | Capabilities                                                          |
-| ------------------------ | --------- | --------------------------------------------------------------------- |
-| **PROJECT_OWNER**        | Employee  | Manages existing projects (pre-created by IaC), creates apps/roles    |
-| **ORG_PROJECT_CREATOR**  | Customer  | Can create new projects in its org, self-provisions per-app projects  |
+| Pattern                 | Operator | Capabilities                                                         |
+| ----------------------- | -------- | -------------------------------------------------------------------- |
+| **PROJECT_OWNER**       | Employee | Manages existing projects (pre-created by IaC), creates apps/roles   |
+| **ORG_PROJECT_CREATOR** | Customer | Can create new projects in its org, self-provisions per-app projects |
 
 The employee operator works with projects that already exist (created by Terraform/Pulumi during cluster bootstrap). The customer operator creates projects on demand — each product service gets its own Zitadel project.
 

@@ -82,6 +82,56 @@ func isReady(obj client.Object) bool {
 		return o.Status.Ready
 	case *zitadelv1alpha2.IdentityProvider:
 		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultLoginPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultDomainPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.GoogleIdP:
+		return o.Status.Ready
+	case *zitadelv1alpha2.LoginPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.PasswordComplexityPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.LockoutPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.EmailProvider:
+		return o.Status.Ready
+	case *zitadelv1alpha2.HumanUser:
+		return o.Status.Ready
+	case *zitadelv1alpha2.OrgMember:
+		return o.Status.Ready
+	case *zitadelv1alpha2.InstanceMember:
+		return o.Status.Ready
+	case *zitadelv1alpha2.LabelPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.NotificationPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.PasswordAgePolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.SmsProvider:
+		return o.Status.Ready
+	case *zitadelv1alpha2.GitHubIdP:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultLockoutPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultPasswordComplexityPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultPasswordAgePolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultNotificationPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultLabelPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultPrivacyPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultOIDCSettings:
+		return o.Status.Ready
+	case *zitadelv1alpha2.PrivacyPolicy:
+		return o.Status.Ready
+	case *zitadelv1alpha2.DefaultMessageText:
+		return o.Status.Ready
+	case *zitadelv1alpha2.MessageText:
+		return o.Status.Ready
 	default:
 		return false
 	}

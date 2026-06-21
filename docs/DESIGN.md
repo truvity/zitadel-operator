@@ -97,13 +97,13 @@ Helm renders:
 
 ### Why No ZitadelInstance CRD
 
-| Concern | Solved by |
-|---------|-----------|
-| Which instance to connect to | Config file (`domain` field) |
-| Credential rotation | Volume mount + kubelet secret sync |
-| Connection status visibility | Operator health check endpoint + metrics |
-| Multiple instances | Multiple operator deployments (one per instance) |
-| Runtime reconfiguration | Not needed — restart is fine for instance-level changes |
+| Concern                      | Solved by                                               |
+| ---------------------------- | ------------------------------------------------------- |
+| Which instance to connect to | Config file (`domain` field)                            |
+| Credential rotation          | Volume mount + kubelet secret sync                      |
+| Connection status visibility | Operator health check endpoint + metrics                |
+| Multiple instances           | Multiple operator deployments (one per instance)        |
+| Runtime reconfiguration      | Not needed — restart is fine for instance-level changes |
 
 A CRD adds reconciliation complexity for connection lifecycle (reconnect, retry, health) without clear benefit when the operator is always 1:1 with an instance.
 
@@ -148,10 +148,10 @@ Operator B (domain: zitadel-staging.truvity.cloud, watchNamespaces: [staging-app
 
 ### Why Not Controller-Class
 
-| Approach | Enforcement | Complexity |
-|----------|------------|------------|
+| Approach               | Enforcement                          | Complexity                      |
+| ---------------------- | ------------------------------------ | ------------------------------- |
 | Controller-class label | Application-level (our code filters) | Custom logic, not RBAC-enforced |
-| Namespace + RBAC | API server-level (K8s enforces) | Zero custom logic, standard K8s |
+| Namespace + RBAC       | API server-level (K8s enforces)      | Zero custom logic, standard K8s |
 
 Since we don't need two operators in the same namespace, namespace-scoped RBAC gives us everything controller-class would — enforced by the platform, not by our code.
 
@@ -217,15 +217,15 @@ Every resource references only its **direct parent** in the hierarchy. Reference
 
 **Rule: reference your direct parent only.** Organization is inherited through the chain — an App doesn't need to specify org because it gets it from its Project.
 
-| Resource level | References | Org resolution |
-|---------------|-----------|----------------|
-| Organization | nothing (top-level) | Is the org |
-| Project | Organization (direct parent) | Explicit |
-| OIDCApp, APIApp | Project (direct parent) | Inherited from Project |
-| ProjectGrant, ProjectMember | Project (direct parent) | Inherited from Project |
-| MachineUser, HumanUser | Organization (direct parent) | Explicit |
-| IdentityProvider, LoginPolicy | Organization (direct parent) | Explicit |
-| UserGrant | Organization (direct parent) + user + project refs | Explicit |
+| Resource level                | References                                         | Org resolution         |
+| ----------------------------- | -------------------------------------------------- | ---------------------- |
+| Organization                  | nothing (top-level)                                | Is the org             |
+| Project                       | Organization (direct parent)                       | Explicit               |
+| OIDCApp, APIApp               | Project (direct parent)                            | Inherited from Project |
+| ProjectGrant, ProjectMember   | Project (direct parent)                            | Inherited from Project |
+| MachineUser, HumanUser        | Organization (direct parent)                       | Explicit               |
+| IdentityProvider, LoginPolicy | Organization (direct parent)                       | Explicit               |
+| UserGrant                     | Organization (direct parent) + user + project refs | Explicit               |
 
 **Organization reference (on Project, User, IdP, Policy resources):**
 
@@ -259,29 +259,29 @@ spec:
 
 ### Resolution Logic
 
-| Field set | Resolution |
-|-----------|-----------|
+| Field set         | Resolution                                                                      |
+| ----------------- | ------------------------------------------------------------------------------- |
 | `organizationRef` | Look up Organization CR (same ns or specified ns) → use `status.organizationId` |
-| `organizationId` | Use directly |
-| Neither | Use operator config `defaultOrganizationId` |
-| Both | Validation error (mutually exclusive) |
+| `organizationId`  | Use directly                                                                    |
+| Neither           | Use operator config `defaultOrganizationId`                                     |
+| Both              | Validation error (mutually exclusive)                                           |
 
-| Field set | Resolution |
-|-----------|-----------|
+| Field set    | Resolution                                                            |
+| ------------ | --------------------------------------------------------------------- |
 | `projectRef` | Look up Project CR (same ns or specified ns) → use `status.projectId` |
-| `projectId` | Use directly |
-| Neither | Error (project is required for apps/grants) |
-| Both | Validation error (mutually exclusive) |
+| `projectId`  | Use directly                                                          |
+| Neither      | Error (project is required for apps/grants)                           |
+| Both         | Validation error (mutually exclusive)                                 |
 
 **Org resolution for App-level resources:** The operator resolves the Project first, then uses the Project's organization. No org field on the App itself.
 
 ### When to Use Which
 
-| Scenario | Use |
-|----------|-----|
-| Parent resource is managed by this operator | `*Ref` (name reference) — stays in sync automatically |
-| Parent resource is pre-existing (not operator-managed) | `*Id` (raw ID) — no CR needed |
-| Single-org setup (all resources in one org) | Omit org entirely — operator default handles it |
+| Scenario                                               | Use                                                   |
+| ------------------------------------------------------ | ----------------------------------------------------- |
+| Parent resource is managed by this operator            | `*Ref` (name reference) — stays in sync automatically |
+| Parent resource is pre-existing (not operator-managed) | `*Id` (raw ID) — no CR needed                         |
+| Single-org setup (all resources in one org)            | Omit org entirely — operator default handles it       |
 
 ### Full Example
 
@@ -357,56 +357,59 @@ spec:
 
 ### Tier 1 — Core (implement first)
 
-| CRD | Scope | Terraform Equivalent | Notes |
-|-----|-------|---------------------|-------|
-| Organization | Namespaced | `zitadel_org` | Platform team manages in dedicated ns |
-| Project | Namespaced | `zitadel_project` | Has inline roles, references org |
-| OIDCApp | Namespaced | `zitadel_application_oidc` | Secret output, references project |
-| MachineUser | Namespaced | `zitadel_machine_user` | Key management |
+| CRD          | Scope      | Terraform Equivalent       | Notes                                 |
+| ------------ | ---------- | -------------------------- | ------------------------------------- |
+| Organization | Namespaced | `zitadel_org`              | Platform team manages in dedicated ns |
+| Project      | Namespaced | `zitadel_project`          | Has inline roles, references org      |
+| OIDCApp      | Namespaced | `zitadel_application_oidc` | Secret output, references project     |
+| MachineUser  | Namespaced | `zitadel_machine_user`     | Key management                        |
 
 ### Tier 2 — Identity & Access
 
-| CRD | Scope | Terraform Equivalent | Notes |
-|-----|-------|---------------------|-------|
-| HumanUser | Namespaced | `zitadel_human_user` | New |
-| UserGrant | Namespaced | `zitadel_user_grant` | Role assignment |
-| ProjectGrant | Namespaced | `zitadel_project_grant` | Cross-org grant |
-| ProjectMember | Namespaced | `zitadel_project_member` | |
-| OrgMember | Namespaced | `zitadel_org_member` | |
-| InstanceMember | Namespaced | `zitadel_instance_member` | |
+| CRD            | Scope      | Terraform Equivalent      | Notes           |
+| -------------- | ---------- | ------------------------- | --------------- |
+| HumanUser      | Namespaced | `zitadel_human_user`      | New             |
+| UserGrant      | Namespaced | `zitadel_user_grant`      | Role assignment |
+| ProjectGrant   | Namespaced | `zitadel_project_grant`   | Cross-org grant |
+| ProjectMember  | Namespaced | `zitadel_project_member`  |                 |
+| OrgMember      | Namespaced | `zitadel_org_member`      |                 |
+| InstanceMember | Namespaced | `zitadel_instance_member` |                 |
 
 ### Tier 3 — Policies & IdP
 
-| CRD | Scope | Terraform Equivalent | Notes |
-|-----|-------|---------------------|-------|
-| IdentityProvider | Namespaced | `zitadel_idp_*` (google, github, saml, oidc) | Org-scoped (INF-357) |
-| LoginPolicy | Namespaced | `zitadel_login_policy` | Org-scoped (INF-357) |
-| PasswordComplexityPolicy | Namespaced | `zitadel_password_complexity_policy` | |
-| LockoutPolicy | Namespaced | `zitadel_lockout_policy` | |
+| CRD                      | Scope      | Terraform Equivalent                         | Notes                                                           |
+| ------------------------ | ---------- | -------------------------------------------- | --------------------------------------------------------------- |
+| IdentityProvider         | Namespaced | `zitadel_idp_*` (google, github, saml, oidc) | Org-scoped (INF-357)                                            |
+| LoginPolicy              | Namespaced | `zitadel_login_policy`                       | Org-scoped, implemented                                         |
+| PasswordComplexityPolicy | Namespaced | `zitadel_password_complexity_policy`         | Org-scoped, implemented                                         |
+| LockoutPolicy            | Namespaced | `zitadel_lockout_policy`                     | Org-scoped, implemented                                         |
+| DefaultLoginPolicy       | Namespaced | Admin API `UpdateLoginPolicy`                | Instance-level (IAM_OWNER), singleton, implemented              |
+| DefaultDomainPolicy      | Namespaced | Admin API `UpdateDomainPolicy`               | Instance-level (IAM_OWNER), singleton, implemented              |
+| GoogleIdP                | Namespaced | Admin API `AddGoogleProvider`                | Instance-level (IAM_OWNER), exposes `status.idpID`, implemented |
 
 ### Tier 4 — Extended
 
-| CRD | Scope | Terraform Equivalent | Notes |
-|-----|-------|---------------------|-------|
-| APIApp | Namespaced | `zitadel_application_api` | New |
-| ApplicationKey | Namespaced | `zitadel_application_key` | |
-| PersonalAccessToken | Namespaced | `zitadel_personal_access_token` | |
-| ActionTarget | Namespaced | Actions v2 Target (API-only, no TF resource yet) | Org-scoped, webhook URL + auth config |
-| ActionExecution | Namespaced | Actions v2 Execution (API-only, no TF resource yet) | Org-scoped, condition → targets binding |
-| EmailProvider | Namespaced | `zitadel_smtp_config` + HTTP email provider | Instance-level, type: smtp or http (webhook) |
-| SmsProvider | Namespaced | `zitadel_sms_provider_twilio` + HTTP SMS provider | Instance-level, type: twilio or http (webhook) |
-| LabelPolicy | Namespaced | `zitadel_label_policy` | Future |
-| DomainPolicy | Namespaced | `zitadel_domain_policy` | Future |
+| CRD                 | Scope      | Terraform Equivalent                                | Notes                                                  |
+| ------------------- | ---------- | --------------------------------------------------- | ------------------------------------------------------ |
+| APIApp              | Namespaced | `zitadel_application_api`                           | Implemented                                            |
+| ApplicationKey      | Namespaced | `zitadel_application_key`                           | Implemented                                            |
+| PersonalAccessToken | Namespaced | `zitadel_personal_access_token`                     | Implemented                                            |
+| ActionTarget        | Namespaced | Actions v2 Target (API-only, no TF resource yet)    | Instance-level, implemented                            |
+| ActionExecution     | Namespaced | Actions v2 Execution (API-only, no TF resource yet) | Instance-level, implemented                            |
+| EmailProvider       | Namespaced | `zitadel_smtp_config` + HTTP email provider         | Instance-level, type: smtp or http, implemented        |
+| SmsProvider         | Namespaced | `zitadel_sms_provider_twilio` + HTTP SMS provider   | Instance-level, type: twilio or http (webhook), future |
+| LabelPolicy         | Namespaced | `zitadel_label_policy`                              | Future                                                 |
+| DomainPolicy        | Namespaced | `zitadel_domain_policy`                             | Future                                                 |
 
 ### Key v1alpha1 → v1alpha2 Changes
 
-| Change | Reason |
-|--------|--------|
-| All resources get explicit `organizationId` or `organizationRef` | Terraform parity, explicit scoping |
-| All CRDs are namespaced | RBAC permission boundaries via K8s namespaces |
-| Multi-operator via namespace scoping + RBAC | Standard K8s, no custom labels |
-| Cross-namespace refs via `{name, namespace}` | Shared projects/orgs across team namespaces |
-| No `instanceRef` field on resources | Instance is operator-level config, not per-resource |
+| Change                                                           | Reason                                              |
+| ---------------------------------------------------------------- | --------------------------------------------------- |
+| All resources get explicit `organizationId` or `organizationRef` | Terraform parity, explicit scoping                  |
+| All CRDs are namespaced                                          | RBAC permission boundaries via K8s namespaces       |
+| Multi-operator via namespace scoping + RBAC                      | Standard K8s, no custom labels                      |
+| Cross-namespace refs via `{name, namespace}`                     | Shared projects/orgs across team namespaces         |
+| No `instanceRef` field on resources                              | Instance is operator-level config, not per-resource |
 
 ---
 
@@ -414,10 +417,10 @@ spec:
 
 ### Two Test Packages
 
-| Package | What | Framework | Build tag | External deps | Run command |
-|---------|------|-----------|-----------|--------------|-------------|
-| `tests/unit/` | Business logic, drift detection, normalization, client helpers | Standard `go test` | None | None | `go test ./tests/unit/...` |
-| `tests/integration/` | Full reconciliation loop (K8s + real Zitadel) | `kubernetes-sigs/e2e-framework` + Kind | `//go:build integration` | Docker, `~/.config/zitadel-operator/config.yaml` | `go test -tags=integration ./tests/integration/...` |
+| Package              | What                                                           | Framework                              | Build tag                | External deps                                    | Run command                                         |
+| -------------------- | -------------------------------------------------------------- | -------------------------------------- | ------------------------ | ------------------------------------------------ | --------------------------------------------------- |
+| `tests/unit/`        | Business logic, drift detection, normalization, client helpers | Standard `go test`                     | None                     | None                                             | `go test ./tests/unit/...`                          |
+| `tests/integration/` | Full reconciliation loop (K8s + real Zitadel)                  | `kubernetes-sigs/e2e-framework` + Kind | `//go:build integration` | Docker, `~/.config/zitadel-operator/config.yaml` | `go test -tags=integration ./tests/integration/...` |
 
 ### Unit Tests (`tests/unit/`)
 
@@ -658,12 +661,12 @@ Priority: get into integration-test-driven development (Kind + real Zitadel) on 
 
 Three public repos forming the Zitadel identity automation ecosystem:
 
-| Repository | Purpose | Knows about |
-|------------|---------|-------------|
-| `truvity/zitadel-operator` | K8s operator (CRDs, reconcilers) + `pkg/webhook/` helpers + examples | Zitadel only |
-| `truvity/zitadel-rbac-mapper` | Groups→Zitadel grants mapping webhook (Deployment/Lambda) | Zitadel only (groups come as input) |
+| Repository                     | Purpose                                                                                                   | Knows about                                        |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `truvity/zitadel-operator`     | K8s operator (CRDs, reconcilers) + `pkg/webhook/` helpers + examples                                      | Zitadel only                                       |
+| `truvity/zitadel-rbac-mapper`  | Groups→Zitadel grants mapping webhook (Deployment/Lambda)                                                 | Zitadel only (groups come as input)                |
 | `truvity/zitadel-notify-relay` | HTTP provider relay for Email/SMS (receives Zitadel notification payloads, delivers via AWS SES/SNS/etc.) | Zitadel notification payloads + delivery providers |
-| `truvity/google-group-sync` | Google Workspace group fetcher (CronJob/Lambda) | Google only (no Zitadel knowledge) |
+| `truvity/google-group-sync`    | Google Workspace group fetcher (CronJob/Lambda)                                                           | Google only (no Zitadel knowledge)                 |
 
 ### What lives where
 
@@ -763,13 +766,13 @@ repo/
 
 ### Release & Distribution (all free, public)
 
-| Artifact | Hosted on | Architectures | Published by |
-|----------|-----------|---------------|-------------|
-| Container images (multi-arch) | GHCR (`ghcr.io/truvity/<repo>`) | linux/amd64, linux/arm64 | GoReleaser (ko, multi-platform) |
-| Helm charts (OCI) | GHCR (`oci://ghcr.io/truvity/charts/<name>`) | arch-agnostic (references multi-arch image) | GoReleaser post-hook |
-| Lambda ZIPs | GitHub Release assets | linux/amd64, linux/arm64 | GoReleaser archives |
-| Raw binaries | GitHub Release assets | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 | GoReleaser builds |
-| Go module | GitHub (proxy.golang.org auto-indexes) | — | `git tag vX.Y.Z` |
+| Artifact                      | Hosted on                                    | Architectures                                        | Published by                    |
+| ----------------------------- | -------------------------------------------- | ---------------------------------------------------- | ------------------------------- |
+| Container images (multi-arch) | GHCR (`ghcr.io/truvity/<repo>`)              | linux/amd64, linux/arm64                             | GoReleaser (ko, multi-platform) |
+| Helm charts (OCI)             | GHCR (`oci://ghcr.io/truvity/charts/<name>`) | arch-agnostic (references multi-arch image)          | GoReleaser post-hook            |
+| Lambda ZIPs                   | GitHub Release assets                        | linux/amd64, linux/arm64                             | GoReleaser archives             |
+| Raw binaries                  | GitHub Release assets                        | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 | GoReleaser builds               |
+| Go module                     | GitHub (proxy.golang.org auto-indexes)       | —                                                    | `git tag vX.Y.Z`                |
 
 ### Pulumi deployment examples
 
@@ -840,11 +843,11 @@ All integration tests use XDG config paths + system keyring (via [go-keyring](ht
 
 Secrets are stored in the platform keyring (GNOME Keyring on Linux, macOS Keychain on macOS) via `go-keyring`:
 
-| Service | Keyring key | Value |
-|---------|-------------|-------|
-| `zitadel-operator` | `jwt-key` | Zitadel test instance JWT key JSON |
-| `zitadel-rbac-mapper` | `jwt-key` | Same Zitadel JWT key (shared instance) |
-| `google-group-sync` | `sa-key` | Google Workspace service account key JSON |
+| Service               | Keyring key | Value                                     |
+| --------------------- | ----------- | ----------------------------------------- |
+| `zitadel-operator`    | `jwt-key`   | Zitadel test instance JWT key JSON        |
+| `zitadel-rbac-mapper` | `jwt-key`   | Same Zitadel JWT key (shared instance)    |
+| `google-group-sync`   | `sa-key`    | Google Workspace service account key JSON |
 
 ### Storing secrets (one-time setup)
 
@@ -1102,3 +1105,72 @@ type ProblemDetail struct {
 ├── LICENSE (MIT)
 └── README.md
 ```
+
+---
+
+## CRD Design Patterns
+
+### Pattern 1: Default/Org Paired Policies (Shared Fields)
+
+Most Zitadel policies exist at two levels:
+- **Instance-default** (Admin API, singleton) — the fallback policy for all orgs
+- **Org-scoped override** (Management API, per-org) — custom policy for one org
+
+Both share the same field structure. We DRY the fields via embedded structs:
+
+```go
+// Shared (in policy_fields.go)
+type LockoutPolicyFields struct {
+    MaxPasswordAttempts uint32 `json:"maxPasswordAttempts"`
+    MaxOtpAttempts      uint32 `json:"maxOtpAttempts,omitempty"`
+}
+
+// Instance-default (Admin API)
+type DefaultLockoutPolicySpec struct {
+    LockoutPolicyFields `json:",inline"`
+}
+
+// Org-scoped (Management API)
+type LockoutPolicySpec struct {
+    OrganizationRef *ResourceRef `json:"organizationRef,omitempty"`
+    OrganizationId  string       `json:"organizationId,omitempty"`
+    LockoutPolicyFields `json:",inline"`
+}
+```
+
+The org-scoped variant adds `OrganizationRef`/`OrganizationId` for org resolution. Some (like LoginPolicy) add extra org-only fields after the embedded struct.
+
+**Singleton semantics for Default*:** There's no "create" — the default policy always exists. The operator reads current state, detects drift, and updates. Deletion resets to safe defaults (documented per resource).
+
+**Org-scoped semantics:** Uses `AddCustom*Policy` / `UpdateCustom*Policy`. Deletion calls `Reset*PolicyToDefault` (removes the custom override, org falls back to instance default).
+
+### Pattern 2: Type Discriminator (MessageText)
+
+When multiple Zitadel resources share identical field structures but differ only in which API method is called, we use a single CRD with a `type` discriminator:
+
+```yaml
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: DefaultMessageText
+spec:
+  type: init  # selects SetDefaultInitMessageText API
+  language: "en"
+  title: "Welcome"
+  # ...
+```
+
+The reconciler switches on `spec.type` to call the correct API method. This avoids creating 10+ nearly-identical CRDs.
+
+**SMS caveat:** The `verifySmsOtp` type only supports `language` and `text` fields (it's an SMS, not an email). Other fields are silently ignored by Zitadel. The operator logs a warning and sets a non-blocking `SmsFieldWarning` condition if unused fields are set.
+
+### Pattern 3: Secret References (SecretKeyRef)
+
+Sensitive values (client secrets, passwords, tokens) are never stored in CRD specs as literals. Instead, they reference a Kubernetes Secret:
+
+```yaml
+spec:
+  clientSecretRef:
+    name: my-secret     # K8s Secret name (same namespace)
+    key: clientSecret   # Key within the Secret's data
+```
+
+If the referenced Secret doesn't exist, the reconciler sets `Ready=False` with reason `SecretNotFound` and requeues (10s). Once the Secret appears, the next reconcile succeeds.

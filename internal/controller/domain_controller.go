@@ -56,7 +56,7 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Management().RemoveOrgDomain(ctx, &management.RemoveOrgDomainRequest{ //nolint:staticcheck // no v2 equivalent yet
+		_, err := r.Zitadel.Management().RemoveOrgDomain(ctx, &management.RemoveOrgDomainRequest{
 			Domain: cr.Spec.DomainName,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
@@ -99,7 +99,7 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 func (r *DomainReconciler) ensureDomain(ctx context.Context, domainName string) error {
 	// Check if domain already exists.
-	listResp, err := r.Zitadel.Management().ListOrgDomains(ctx, &management.ListOrgDomainsRequest{ //nolint:staticcheck // no v2 equivalent yet
+	listResp, err := r.Zitadel.Management().ListOrgDomains(ctx, &management.ListOrgDomainsRequest{
 		Query: &object.ListQuery{Limit: 100},
 		Queries: []*org.DomainSearchQuery{
 			{
@@ -123,7 +123,7 @@ func (r *DomainReconciler) ensureDomain(ctx context.Context, domainName string) 
 	}
 
 	// Add domain.
-	_, err = r.Zitadel.Management().AddOrgDomain(ctx, &management.AddOrgDomainRequest{ //nolint:staticcheck // no v2 equivalent yet
+	_, err = r.Zitadel.Management().AddOrgDomain(ctx, &management.AddOrgDomainRequest{
 		Domain: domainName,
 	})
 	if err != nil {

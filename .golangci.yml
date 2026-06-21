@@ -25,6 +25,11 @@ linters:
         - performance
     misspell:
       locale: US
+    staticcheck:
+      checks:
+        - "all"
+        - "-SA1019"  # suppress deprecated API warnings (Zitadel SDK v1 methods marked deprecated for v2)
+        - "-ST1003"  # suppress naming convention warnings (CRD struct fields must match json camelCase tags)
 
 formatters:
   enable:

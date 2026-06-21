@@ -266,6 +266,216 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controller.DefaultLoginPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultLoginPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultDomainPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultDomainPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.GoogleIdPReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "GoogleIdP")
+		os.Exit(1)
+	}
+
+	if err := (&controller.LoginPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "LoginPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.PasswordComplexityPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PasswordComplexityPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.LockoutPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "LockoutPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.EmailProviderReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "EmailProvider")
+		os.Exit(1)
+	}
+
+	if err := (&controller.HumanUserReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "HumanUser")
+		os.Exit(1)
+	}
+
+	if err := (&controller.OrgMemberReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OrgMember")
+		os.Exit(1)
+	}
+
+	if err := (&controller.InstanceMemberReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InstanceMember")
+		os.Exit(1)
+	}
+
+	if err := (&controller.LabelPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "LabelPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.NotificationPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NotificationPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.PasswordAgePolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PasswordAgePolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.SmsProviderReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SmsProvider")
+		os.Exit(1)
+	}
+
+	if err := (&controller.GitHubIdPReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "GitHubIdP")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultLockoutPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultLockoutPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultPasswordComplexityPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultPasswordComplexityPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultPasswordAgePolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultPasswordAgePolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultNotificationPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultNotificationPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultLabelPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultLabelPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultPrivacyPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultPrivacyPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultOIDCSettingsReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultOIDCSettings")
+		os.Exit(1)
+	}
+
+	if err := (&controller.PrivacyPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PrivacyPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultMessageTextReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "DefaultMessageText")
+		os.Exit(1)
+	}
+
+	if err := (&controller.MessageTextReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MessageText")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)

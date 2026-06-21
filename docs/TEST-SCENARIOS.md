@@ -361,6 +361,111 @@ b# Zitadel Operator — E2E Test Scenarios
 
 ---
 
+## 13. Instance-Level Policies (P0 — IAM_OWNER, Admin API)
+
+### S-130: DefaultLoginPolicy — create and update
+- Apply DefaultLoginPolicy with allowExternalIdp: true
+- **Expect:** status.ready = true, instance login policy updated
+- Update to allowExternalIdp: false
+- **Expect:** drift detected, Zitadel instance default updated
+
+### S-131: DefaultLoginPolicy — deletion resets to safe baseline
+- Delete DefaultLoginPolicy CR
+- **Expect:** finalizer resets instance to safe defaults (userLogin: true, allowExternalIdp: false)
+- **Expect:** CR deleted
+
+### S-132: DefaultDomainPolicy — create and update
+- Apply DefaultDomainPolicy with userLoginMustBeDomain: false
+- **Expect:** status.ready = true, instance domain policy updated
+- Update validateOrgDomains: true
+- **Expect:** drift reconciled
+
+### S-133: DefaultDomainPolicy — deletion resets to safe baseline
+- Delete DefaultDomainPolicy CR
+- **Expect:** resets to safe defaults (all true), CR deleted
+
+### S-134: GoogleIdP — lifecycle with secret ref
+- Create K8s Secret with clientSecret
+- Apply GoogleIdP with clientSecretRef referencing the Secret
+- **Expect:** status.idpID set, status.ready = true
+- Update scopes
+- **Expect:** provider updated in Zitadel
+
+### S-135: GoogleIdP — secret not found
+- Apply GoogleIdP referencing a Secret that doesn't exist
+- **Expect:** Ready=False, condition = "SecretNotFound"
+- Create the Secret
+- **Expect:** next reconcile succeeds
+
+### S-136: GoogleIdP → DefaultLoginPolicy idpRef resolution (end-to-end)
+- Create GoogleIdP, wait for Ready (status.idpID set)
+- Create DefaultLoginPolicy with idps[].idpRef pointing to the GoogleIdP CR
+- **Expect:** policy reconciles successfully, IDP added to instance login policy
+- Delete policy, then IdP
+- **Expect:** IDP removed from login policy, clean deletion
+
+---
+
+## 14. Org-Scoped Policies (P1 — ORG_OWNER, Management API)
+
+### S-140: LoginPolicy — create custom org policy
+- Create Organization
+- Apply LoginPolicy with organizationRef, allowRegister: true
+- **Expect:** custom login policy created at org level, status.ready = true
+
+### S-141: LoginPolicy — update (mutation)
+- Change allowRegister to false
+- **Expect:** custom policy updated in Zitadel
+
+### S-142: LoginPolicy — deletion resets to default
+- Delete LoginPolicy CR
+- **Expect:** org login policy reset to instance default
+
+### S-143: PasswordComplexityPolicy — lifecycle
+- Create Organization
+- Apply PasswordComplexityPolicy (minLength: 12, hasLowercase: true, hasUppercase: true)
+- **Expect:** custom policy created at org level, status.ready = true
+- Update minLength to 16
+- **Expect:** policy updated
+
+### S-144: PasswordComplexityPolicy — deletion resets to default
+- Delete CR
+- **Expect:** org policy reset to instance default
+
+### S-145: LockoutPolicy — lifecycle
+- Create Organization
+- Apply LockoutPolicy (maxPasswordAttempts: 5, maxOtpAttempts: 3)
+- **Expect:** custom policy created at org level, status.ready = true
+- Update maxPasswordAttempts to 10
+- **Expect:** policy updated
+
+### S-146: LockoutPolicy — deletion resets to default
+- Delete CR
+- **Expect:** org policy reset to instance default
+
+---
+
+## 15. Email Provider (P2 — IAM_OWNER, Admin API)
+
+### S-150: EmailProvider HTTP — lifecycle
+- Apply EmailProvider with http.endpoint
+- **Expect:** provider created and activated, status.providerId set, status.ready = true
+- Update endpoint
+- **Expect:** provider updated
+
+### S-151: EmailProvider SMTP — lifecycle with passwordSecretRef
+- Create K8s Secret with SMTP password
+- Apply EmailProvider with smtp config + passwordSecretRef
+- **Expect:** provider created, activated, status.providerId set
+- Delete CR
+- **Expect:** provider removed from Zitadel
+
+### S-152: EmailProvider — invalid spec (both smtp and http)
+- Apply EmailProvider with both smtp and http set
+- **Expect:** Ready=False, condition = "InvalidSpec"
+
+---
+
 ## Running Scenarios
 
 ```bash
@@ -370,7 +475,114 @@ go test -tags=integration -v ./tests/integration/...
 # Specific scenario group
 go test -tags=integration -v -run TestOrganization ./tests/integration/...
 go test -tags=integration -v -run TestOIDCApp ./tests/integration/...
+go test -tags=integration -v -run TestDefaultLoginPolicy ./tests/integration/...
+go test -tags=integration -v -run TestGoogleIdP ./tests/integration/...
+go test -tags=integration -v -run TestLoginPolicy ./tests/integration/...
+go test -tags=integration -v -run TestEmailProvider ./tests/integration/...
 
 # Single scenario
 go test -tags=integration -v -run TestOIDCApp/S-030_idempotency ./tests/integration/...
 ```
+
+
+---
+
+## 16. Singleton Policies — Drift Detection & Duplicates
+
+### S-160: DefaultLockoutPolicy — drift detection
+- Create DefaultLockoutPolicy with maxPasswordAttempts=5
+- Externally change value to 99 via Zitadel Admin API
+- Trigger requeue (label update on CR)
+- **Expect:** operator detects drift and reconciles back to 5
+- **Test:** `TestDefaultLockoutPolicy_DriftDetection`
+
+### S-161: DefaultLockoutPolicy — duplicate creation (last-writer-wins)
+- Create two DefaultLockoutPolicy CRs with different maxPasswordAttempts values
+- **Expect:** both become Ready=true (both successfully call UpdateLockoutPolicy)
+- **Expect:** actual Zitadel value matches whichever CR reconciled last
+- **Test:** `TestDefaultLockoutPolicy_DuplicateCreation`
+
+---
+
+## 17. Message Text Resources
+
+### S-170: DefaultMessageText init — lifecycle with mutation
+- Create DefaultMessageText (type=init), verify Ready
+- Mutate Subject field, verify still Ready after reconcile
+- Delete (resets to Zitadel default)
+- **Test:** `TestDefaultMessageText_Init_Lifecycle`
+
+### S-171: DefaultMessageText passwordReset — lifecycle
+- Create DefaultMessageText (type=passwordReset), verify Ready
+- Delete (resets to default)
+- **Test:** `TestDefaultMessageText_PasswordReset_Lifecycle`
+
+### S-172: MessageText init — org-scoped lifecycle with mutation
+- Create Organization, then MessageText (type=init) with orgRef
+- Verify Ready, verify organizationId in status
+- Mutate Greeting field, verify still Ready
+- Delete (resets org message to default)
+- **Test:** `TestMessageText_Init_Lifecycle`
+
+### S-173: verifySmsOtp — SmsFieldWarning condition
+- Create DefaultMessageText (type=verifySmsOtp) with email-only fields set
+- **Expect:** Ready=true (non-blocking), condition SmsFieldWarning=True present
+- **Verify:** only language and text are sent to Zitadel API
+
+---
+
+## 18. Batch 2 Resources — Mutations
+
+### S-180: HumanUser — lifecycle with mutation
+- Create Organization, HumanUser with orgRef
+- Mutate FirstName, verify still Ready
+- **Test:** `TestHumanUser_Lifecycle`
+
+### S-181: OrgMember — lifecycle with mutation
+- Create Organization, MachineUser, OrgMember
+- Mutate Roles to ["ORG_OWNER", "ORG_ADMIN"], verify still Ready
+- **Test:** `TestOrgMember_Lifecycle`
+
+### S-182: LabelPolicy — lifecycle with mutation
+- Create Organization, LabelPolicy with orgRef
+- Mutate PrimaryColor, verify still Ready
+- **Test:** `TestLabelPolicy_Lifecycle`
+
+### S-183: NotificationPolicy — lifecycle with mutation
+- Create Organization, NotificationPolicy with orgRef
+- Toggle PasswordChange, verify still Ready
+- **Test:** `TestNotificationPolicy_Lifecycle`
+
+### S-184: PasswordAgePolicy — lifecycle with mutation
+- Create Organization, PasswordAgePolicy with orgRef
+- Change MaxAgeDays, verify still Ready
+- **Test:** `TestPasswordAgePolicy_Lifecycle`
+
+### S-185: SmsProvider HTTP — lifecycle with mutation
+- Create SmsProvider (HTTP), verify Ready + providerId
+- Change Endpoint, verify still Ready
+- **Test:** `TestSmsProvider_HTTP_Lifecycle`
+
+---
+
+## 19. Privacy & OIDC Policies — Mutations
+
+### S-190: PrivacyPolicy — lifecycle with mutation
+- Create Organization, PrivacyPolicy with orgRef
+- Mutate HelpLink, verify still Ready
+- **Test:** `TestPrivacyPolicy_Lifecycle`
+
+### S-191: DefaultPasswordAgePolicy — mutation
+- Create DefaultPasswordAgePolicy, verify Ready
+- Change MaxAgeDays, verify still Ready
+- **Test:** `TestDefaultPasswordAgePolicy_Lifecycle`
+
+### S-192: DefaultNotificationPolicy — mutation
+- Create DefaultNotificationPolicy, verify Ready
+- Toggle PasswordChange, verify still Ready
+- **Test:** `TestDefaultNotificationPolicy_Lifecycle`
+
+### S-193: DefaultLabelPolicy — mutation
+- Create DefaultLabelPolicy, verify Ready
+- Change PrimaryColor, verify still Ready
+- **Test:** `TestDefaultLabelPolicy_Lifecycle`

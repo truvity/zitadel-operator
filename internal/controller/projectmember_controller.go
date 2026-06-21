@@ -82,7 +82,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Management().RemoveProjectMember(ctx, &management.RemoveProjectMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+		_, err := r.Zitadel.Management().RemoveProjectMember(ctx, &management.RemoveProjectMemberRequest{
 			ProjectId: projectID,
 			UserId:    userID,
 		})
@@ -151,7 +151,7 @@ func (r *ProjectMemberReconciler) resolveUserID(ctx context.Context, cr *zitadel
 
 func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, projectID, userID string, desiredRoles []string) error {
 	// Check if member already exists.
-	listResp, err := r.Zitadel.Management().ListProjectMembers(ctx, &management.ListProjectMembersRequest{ //nolint:staticcheck // no v2 equivalent yet
+	listResp, err := r.Zitadel.Management().ListProjectMembers(ctx, &management.ListProjectMembersRequest{
 		ProjectId: projectID,
 		Query:     &object.ListQuery{Limit: 100},
 		Queries: []*member.SearchQuery{
@@ -173,7 +173,7 @@ func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, proje
 			if m.GetUserId() == userID {
 				// Member exists, update roles if needed.
 				if !rolesEqual(m.GetRoles(), desiredRoles) {
-					_, err := r.Zitadel.Management().UpdateProjectMember(ctx, &management.UpdateProjectMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+					_, err := r.Zitadel.Management().UpdateProjectMember(ctx, &management.UpdateProjectMemberRequest{
 						ProjectId: projectID,
 						UserId:    userID,
 						Roles:     desiredRoles,
@@ -188,7 +188,7 @@ func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, proje
 	}
 
 	// Create new member.
-	_, err = r.Zitadel.Management().AddProjectMember(ctx, &management.AddProjectMemberRequest{ //nolint:staticcheck // no v2 equivalent yet
+	_, err = r.Zitadel.Management().AddProjectMember(ctx, &management.AddProjectMemberRequest{
 		ProjectId: projectID,
 		UserId:    userID,
 		Roles:     desiredRoles,

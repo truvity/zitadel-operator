@@ -76,7 +76,7 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
 		if cr.Status.KeyId != "" {
-			_, err := r.Zitadel.Management().RemoveAppKey(ctx, &management.RemoveAppKeyRequest{ //nolint:staticcheck // no v2 equivalent available
+			_, err := r.Zitadel.Management().RemoveAppKey(ctx, &management.RemoveAppKeyRequest{
 				ProjectId: projectID,
 				AppId:     appID,
 				KeyId:     cr.Status.KeyId,
@@ -144,7 +144,7 @@ func (r *ApplicationKeyReconciler) ensureKey(ctx context.Context, cr *zitadelv1a
 	}
 
 	// Create a new key via Management API.
-	keyResp, err := r.Zitadel.Management().AddAppKey(ctx, &management.AddAppKeyRequest{ //nolint:staticcheck // no v2 equivalent available
+	keyResp, err := r.Zitadel.Management().AddAppKey(ctx, &management.AddAppKeyRequest{
 		ProjectId:      projectID,
 		AppId:          appID,
 		Type:           authn.KeyType_KEY_TYPE_JSON,

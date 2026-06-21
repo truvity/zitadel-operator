@@ -75,7 +75,7 @@ func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
 		if cr.Status.GrantId != "" {
-			_, err := r.Zitadel.Management().RemoveProjectGrant(ctx, &management.RemoveProjectGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
+			_, err := r.Zitadel.Management().RemoveProjectGrant(ctx, &management.RemoveProjectGrantRequest{
 				ProjectId: projectID,
 				GrantId:   cr.Status.GrantId,
 			})
@@ -148,14 +148,14 @@ func (r *ProjectGrantReconciler) resolveGrantedOrgID(ctx context.Context, cr *zi
 func (r *ProjectGrantReconciler) ensureProjectGrant(ctx context.Context, projectID, grantedOrgID string, desiredRoles []string, existingGrantID string) (string, error) {
 	// If we have an existing grant ID, check it.
 	if existingGrantID != "" {
-		resp, err := r.Zitadel.Management().GetProjectGrantByID(ctx, &management.GetProjectGrantByIDRequest{ //nolint:staticcheck // no v2 equivalent yet
+		resp, err := r.Zitadel.Management().GetProjectGrantByID(ctx, &management.GetProjectGrantByIDRequest{
 			ProjectId: projectID,
 			GrantId:   existingGrantID,
 		})
 		if err == nil {
 			// Grant exists, check if roles need updating.
 			if !rolesEqual(resp.GetProjectGrant().GetGrantedRoleKeys(), desiredRoles) {
-				_, err := r.Zitadel.Management().UpdateProjectGrant(ctx, &management.UpdateProjectGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
+				_, err := r.Zitadel.Management().UpdateProjectGrant(ctx, &management.UpdateProjectGrantRequest{
 					ProjectId: projectID,
 					GrantId:   existingGrantID,
 					RoleKeys:  desiredRoles,
@@ -173,7 +173,7 @@ func (r *ProjectGrantReconciler) ensureProjectGrant(ctx context.Context, project
 	}
 
 	// Create new grant.
-	addResp, err := r.Zitadel.Management().AddProjectGrant(ctx, &management.AddProjectGrantRequest{ //nolint:staticcheck // no v2 equivalent yet
+	addResp, err := r.Zitadel.Management().AddProjectGrant(ctx, &management.AddProjectGrantRequest{
 		ProjectId:    projectID,
 		GrantedOrgId: grantedOrgID,
 		RoleKeys:     desiredRoles,

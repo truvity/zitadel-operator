@@ -16,18 +16,43 @@ rules:
       - actiontargets
       - apiapps
       - applicationkeys
+      - defaultdomainpolicies
+      - defaultlabelpolicies
+      - defaultloginpolicies
+      - defaultlockoutpolicies
+      - defaultmessagetexts
+      - defaultnotificationpolicies
+      - defaultoidcsettings
+      - defaultpasswordagepolicies
+      - defaultpasswordcomplexitypolicies
+      - defaultprivacypolicies
       - domains
+      - emailproviders
+      - githubidps
+      - googleidps
+      - humanusers
       - identityproviders
+      - instancemembers
+      - labelpolicies
+      - lockoutpolicies
+      - loginpolicies
       - machineusers
+      - messagetexts
+      - notificationpolicies
       - oidcapps
       - organizations
+      - orgmembers
       - orgmetadata
+      - passwordagepolicies
+      - passwordcomplexitypolicies
       - personalaccesstokens
+      - privacypolicies
       - projectgrantmembers
       - projectgrants
       - projectmembers
       - projects
       - samlapps
+      - smsproviders
       - usergrants
     verbs:
       - get
@@ -44,18 +69,43 @@ rules:
       - actiontargets/status
       - apiapps/status
       - applicationkeys/status
+      - defaultdomainpolicies/status
+      - defaultlabelpolicies/status
+      - defaultloginpolicies/status
+      - defaultlockoutpolicies/status
+      - defaultmessagetexts/status
+      - defaultnotificationpolicies/status
+      - defaultoidcsettings/status
+      - defaultpasswordagepolicies/status
+      - defaultpasswordcomplexitypolicies/status
+      - defaultprivacypolicies/status
       - domains/status
+      - emailproviders/status
+      - githubidps/status
+      - googleidps/status
+      - humanusers/status
       - identityproviders/status
+      - instancemembers/status
+      - labelpolicies/status
+      - lockoutpolicies/status
+      - loginpolicies/status
       - machineusers/status
+      - messagetexts/status
+      - notificationpolicies/status
       - oidcapps/status
       - organizations/status
+      - orgmembers/status
       - orgmetadata/status
+      - passwordagepolicies/status
+      - passwordcomplexitypolicies/status
       - personalaccesstokens/status
+      - privacypolicies/status
       - projectgrantmembers/status
       - projectgrants/status
       - projectmembers/status
       - projects/status
       - samlapps/status
+      - smsproviders/status
       - usergrants/status
     verbs:
       - get
@@ -68,18 +118,43 @@ rules:
       - actiontargets/finalizers
       - apiapps/finalizers
       - applicationkeys/finalizers
+      - defaultdomainpolicies/finalizers
+      - defaultlabelpolicies/finalizers
+      - defaultloginpolicies/finalizers
+      - defaultlockoutpolicies/finalizers
+      - defaultmessagetexts/finalizers
+      - defaultnotificationpolicies/finalizers
+      - defaultoidcsettings/finalizers
+      - defaultpasswordagepolicies/finalizers
+      - defaultpasswordcomplexitypolicies/finalizers
+      - defaultprivacypolicies/finalizers
       - domains/finalizers
+      - emailproviders/finalizers
+      - githubidps/finalizers
+      - googleidps/finalizers
+      - humanusers/finalizers
       - identityproviders/finalizers
+      - instancemembers/finalizers
+      - labelpolicies/finalizers
+      - lockoutpolicies/finalizers
+      - loginpolicies/finalizers
       - machineusers/finalizers
+      - messagetexts/finalizers
+      - notificationpolicies/finalizers
       - oidcapps/finalizers
       - organizations/finalizers
+      - orgmembers/finalizers
       - orgmetadata/finalizers
+      - passwordagepolicies/finalizers
+      - passwordcomplexitypolicies/finalizers
       - personalaccesstokens/finalizers
+      - privacypolicies/finalizers
       - projectgrantmembers/finalizers
       - projectgrants/finalizers
       - projectmembers/finalizers
       - projects/finalizers
       - samlapps/finalizers
+      - smsproviders/finalizers
       - usergrants/finalizers
     verbs:
       - update

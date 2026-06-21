@@ -281,6 +281,216 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	if err := (&controller.DefaultLoginPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultLoginPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultDomainPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultDomainPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.GoogleIdPReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup GoogleIdPReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.LoginPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup LoginPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.PasswordComplexityPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup PasswordComplexityPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.LockoutPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup LockoutPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.EmailProviderReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup EmailProviderReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.HumanUserReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup HumanUserReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.OrgMemberReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup OrgMemberReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.InstanceMemberReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup InstanceMemberReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.LabelPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup LabelPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.NotificationPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup NotificationPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.PasswordAgePolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup PasswordAgePolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.SmsProviderReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup SmsProviderReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.GitHubIdPReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup GitHubIdPReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultLockoutPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultLockoutPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultPasswordComplexityPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultPasswordComplexityPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultPasswordAgePolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultPasswordAgePolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultNotificationPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultNotificationPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultLabelPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultLabelPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultPrivacyPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultPrivacyPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultOIDCSettingsReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultOIDCSettingsReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.PrivacyPolicyReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup PrivacyPolicyReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.DefaultMessageTextReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup DefaultMessageTextReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	if err := (&controller.MessageTextReconciler{
+		Client:  mgr.GetClient(),
+		Zitadel: zitadelClient,
+		Config:  cfg,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup MessageTextReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	// Start manager.
 	var mgrCtx context.Context
 	mgrCtx, mgrCancel = context.WithCancel(ctx)

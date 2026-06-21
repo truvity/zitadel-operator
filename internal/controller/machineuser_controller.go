@@ -64,7 +64,7 @@ func (r *MachineUserReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
 		if cr.Status.UserId != "" {
-			_, err := r.Zitadel.Management().RemoveUser(ctx, &management.RemoveUserRequest{ //nolint:staticcheck // v2 API not stable yet
+			_, err := r.Zitadel.Management().RemoveUser(ctx, &management.RemoveUserRequest{
 				Id: cr.Status.UserId,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
@@ -117,7 +117,7 @@ func (r *MachineUserReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *MachineUserReconciler) ensureMachineUser(ctx context.Context, cr *zitadelv1alpha2.MachineUser, _ string) (string, error) {
 	// If we already have a user ID, verify it still exists.
 	if cr.Status.UserId != "" {
-		_, err := r.Zitadel.Management().GetUserByID(ctx, &management.GetUserByIDRequest{ //nolint:staticcheck // v2 API not stable yet
+		_, err := r.Zitadel.Management().GetUserByID(ctx, &management.GetUserByIDRequest{
 			Id: cr.Status.UserId,
 		})
 		if err == nil {
@@ -130,7 +130,7 @@ func (r *MachineUserReconciler) ensureMachineUser(ctx context.Context, cr *zitad
 	}
 
 	// Search by username via Management API.
-	listResp, err := r.Zitadel.Management().ListUsers(ctx, &management.ListUsersRequest{ //nolint:staticcheck // v2 API not stable yet
+	listResp, err := r.Zitadel.Management().ListUsers(ctx, &management.ListUsersRequest{
 		Queries: []*userv1.SearchQuery{
 			{
 				Query: &userv1.SearchQuery_UserNameQuery{
@@ -159,7 +159,7 @@ func (r *MachineUserReconciler) ensureMachineUser(ctx context.Context, cr *zitad
 	}
 
 	// Create machine user via Management API.
-	createResp, err := r.Zitadel.Management().AddMachineUser(ctx, &management.AddMachineUserRequest{ //nolint:staticcheck // v2 API not stable yet
+	createResp, err := r.Zitadel.Management().AddMachineUser(ctx, &management.AddMachineUserRequest{
 		UserName:        cr.Spec.UserName,
 		Name:            cr.DisplayName(),
 		Description:     cr.Spec.Description,
@@ -186,8 +186,8 @@ func (r *MachineUserReconciler) ensureKey(ctx context.Context, cr *zitadelv1alph
 	}
 
 	// Create a new key via Management API.
-	expiration := time.Now().Add(365 * 10 * 24 * time.Hour)                                     // 10 years
-	keyResp, err := r.Zitadel.Management().AddMachineKey(ctx, &management.AddMachineKeyRequest{ //nolint:staticcheck // v2 API not stable yet
+	expiration := time.Now().Add(365 * 10 * 24 * time.Hour) // 10 years
+	keyResp, err := r.Zitadel.Management().AddMachineKey(ctx, &management.AddMachineKeyRequest{
 		UserId:         userID,
 		Type:           authn.KeyType_KEY_TYPE_JSON,
 		ExpirationDate: timestamppb.New(expiration),

@@ -184,7 +184,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
 	// List existing roles.
-	listResp, err := r.Zitadel.Management().ListProjectRoles(ctx, &management.ListProjectRolesRequest{ //nolint:staticcheck // no v2 equivalent
+	listResp, err := r.Zitadel.Management().ListProjectRoles(ctx, &management.ListProjectRolesRequest{
 		ProjectId: projectID,
 		Query:     &object.ListQuery{Limit: 100},
 	})
@@ -207,7 +207,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	// Add missing roles.
 	for _, role := range desiredRoles {
 		if !existing[role] {
-			_, err := r.Zitadel.Management().AddProjectRole(ctx, &management.AddProjectRoleRequest{ //nolint:staticcheck // no v2 equivalent
+			_, err := r.Zitadel.Management().AddProjectRole(ctx, &management.AddProjectRoleRequest{
 				ProjectId:   projectID,
 				RoleKey:     role,
 				DisplayName: role,
@@ -221,7 +221,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	// Remove extra roles.
 	for roleKey := range existing {
 		if !desired[roleKey] {
-			_, err := r.Zitadel.Management().RemoveProjectRole(ctx, &management.RemoveProjectRoleRequest{ //nolint:staticcheck // no v2 equivalent
+			_, err := r.Zitadel.Management().RemoveProjectRole(ctx, &management.RemoveProjectRoleRequest{
 				ProjectId: projectID,
 				RoleKey:   roleKey,
 			})
