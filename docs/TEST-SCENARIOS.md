@@ -586,3 +586,49 @@ go test -tags=integration -v -run TestOIDCApp/S-030_idempotency ./tests/integrat
 - Create DefaultLabelPolicy, verify Ready
 - Change PrimaryColor, verify still Ready
 - **Test:** `TestDefaultLabelPolicy_Lifecycle`
+
+
+---
+
+## 20. Future — GitOps Composition Coverage (PLANNED, NOT IMPLEMENTED)
+
+These scenarios validate composed flows that a real GitOps deployment applies. They are NOT yet implemented — recorded here for future development. See ROADMAP.md for prioritization.
+
+### S-200: Brownfield Adoption (P1 — GitOps confidence)
+- Pre-create Project + OIDCApp via Zitadel API (simulating Pulumi-managed state)
+- Apply matching CRs with same display names
+- **Expect:** operator adopts existing resources in-place; no duplicates created
+- **Expect:** OIDCApp status.clientId matches the pre-existing client ID (no churn)
+- **Expect:** K8s Secret populated with the existing credentials
+- **Priority:** MUST pass before any Pulumi→operator migration cutover
+- **Risk:** may surface missing adoption capability (match-by-ID or adopt annotation)
+- **Status:** PLANNED
+
+### S-201: Apply-All-at-Once / Out-of-Order Convergence (P1 — GitOps confidence)
+- Apply full bundle in random order: Organization, Project, roles, OIDCApp, MachineUser, ProjectMember, LoginPolicy, GoogleIdP
+- Do NOT wait between applies — single `kubectl apply -f bundle/`
+- **Expect:** all resources eventually reach Ready=true (convergence)
+- **Expect:** no crash, no wedge, no permanent error state
+- **Expect:** parents-not-ready resources requeue and resolve once deps are ready
+- **Status:** PLANNED
+
+### S-202: Per-Cluster Onboarding Bundle (P1 — GitOps confidence)
+- Apply: Project → roles → kubelogin OIDCApp (confidential) → MachineUser → ProjectMember(PROJECT_OWNER)
+- **Expect:** OIDCApp Secret has `client_id` + `client_secret` with stable key names
+- **Expect:** MachineUser Secret has `key.json` with stable key name
+- **Expect:** key names are deterministic across reconcile cycles (no drift)
+- **Status:** PLANNED
+
+### S-203: Full Instance-Global Bootstrap Bundle (P2 — follow-up)
+- Apply all Default* policies + GoogleIdP + EmailProvider + Organization + UserGrant together
+- **Expect:** all reach Ready=true
+- **Expect:** GoogleIdP → DefaultLoginPolicy idpRef resolution works end-to-end
+- **Status:** PLANNED
+
+### S-204: Composite Drift Correction (P2 — follow-up)
+- Create OIDCApp via operator, wait for Ready
+- Externally modify redirectUris via Zitadel console/API
+- Wait for periodic requeue (5 min) or trigger via spec touch
+- **Expect:** operator detects drift and reverts redirectUris to CR spec
+- **Extends:** S-160 (singleton drift) to app-level resources
+- **Status:** PLANNED

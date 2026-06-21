@@ -84,6 +84,44 @@ Includes negative cases, condition verification, idempotent reconcile, and edge 
 ### Tech Debt
 - [ ] Migrate deprecated SDK calls to v2 APIs once stable (SA1019 nolint markers): HumanUser (AddHumanUser→CreateUser), OrgMember/InstanceMember (permission service v2), MachineUser, ApplicationKey, Domain, OrgMetadata, PersonalAccessToken, Project roles, ProjectGrant, ProjectGrantMember, ProjectMember, UserGrant
 
+### Future Validation — GitOps Composition Coverage
+
+The existing integration suite covers per-CRD lifecycle (create/update/delete) in isolation. These planned scenarios validate the **composed flows** a GitOps deployment actually applies. Priority: 1–3 are the GitOps-confidence set (must pass before Pulumi→operator migration cutover); 4–5 are follow-ups.
+
+#### 1. Brownfield Adoption (highest priority — validate before migration)
+
+Pre-create a Project + OIDCApp via the Zitadel API (simulating existing Pulumi-managed resources), then apply matching CRs; the operator must adopt them in place — no duplicate, and the OIDCApp retains its existing `client_id`.
+
+**Why it matters:** The planned retirement of the Pulumi ZITADEL stack assumes the operator can take over already-existing resources without recreating them. Recreate would churn every `client_id`/`client_secret` and break bound apps (kubelogin, ArgoCD, etc.).
+
+**⚠️ May surface a missing capability:** The current adoption logic matches by display name. If the CRD `metadata.name` differs from the Zitadel resource name, adoption may fail. This scenario may require a new feature: match-by-ID or an `adopt` annotation (`zitadel.truvity.io/adopt-id: "<existing-zitadel-id>"`). Record as a feature item if the test reveals adoption gaps.
+
+**Must be validated before migration cutover.**
+
+#### 2. Apply-All-at-Once / Out-of-Order Convergence
+
+Apply a full bundle (Organization → Project → roles → OIDCApp → MachineUser → ProjectMember → policies → IdP) in shuffled/reverse order in a single `kubectl apply`, as ArgoCD does. Assert eventual all-Ready with no wedge or crash — parents-not-ready handled by requeue.
+
+**Validates:** Order-agnostic convergence at bundle scale. Tests that the requeue-on-ref-not-ready pattern works end-to-end across the full dependency graph without requiring wave annotations or sync ordering.
+
+#### 3. Per-Cluster Onboarding Bundle
+
+Project → roles → kubelogin OIDCApp → scoped MachineUser → ProjectMember(PROJECT_OWNER). Assert both output Secrets (app `client_id`/`client_secret` and machine `key.json`) materialize with stable key names.
+
+**Validates:** The most-repeated onboarding flow (one per K8s cluster). Confirms the secret-output contract that downstream ExternalSecrets PushSecret depends on — key names must be stable across reconcile cycles.
+
+#### 4. Full Instance-Global Bootstrap Bundle (follow-up)
+
+All Default* policies + GoogleIdP + EmailProvider + Organization + console UserGrant applied together. Assert all-Ready and end-to-end `idpRef` resolution (GoogleIdP → DefaultLoginPolicy).
+
+**Validates:** The kernel global operator reconciling a fresh Zitadel instance from scratch. Mirrors the ArgoCD App-of-Apps that bootstraps instance identity.
+
+#### 5. Composite Drift Correction (follow-up)
+
+Out-of-band edit of a referenced resource in Zitadel (e.g., change an OIDCApp's redirect URIs in the console). Operator reverts to spec on the next periodic requeue.
+
+**Validates:** Drift enforcement for non-singleton resources (extends the existing DefaultLockoutPolicy drift test to app-level resources). Confirms the operator is the source of truth for all managed resources.
+
 ## Testing Model
 
 | Package              | Purpose                                      | Command                                             |
