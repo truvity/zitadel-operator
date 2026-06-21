@@ -33,7 +33,7 @@ linters:
       # Go Report Card uses 15. We use 25 to allow standard controller-runtime
       # reconciler patterns (get→resolve→delete→finalizer→reconcile→status) which
       # inherently score 16-22. Anything above 25 should be refactored.
-      min-complexity: 25
+      min-complexity: 15
 
 formatters:
   enable:

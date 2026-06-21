@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,8 +30,6 @@ type EmailProviderReconciler struct {
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=emailproviders/finalizers,verbs=update
 
 func (r *EmailProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var cr zitadelv1alpha2.EmailProvider
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -51,66 +48,56 @@ func (r *EmailProviderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
-		if cr.Status.ProviderId != "" {
-			_, err := r.Zitadel.Admin().RemoveEmailProvider(ctx, &admin.RemoveEmailProviderRequest{
-				Id: cr.Status.ProviderId,
-			})
-			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("removing email provider: %w", err)
-			}
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+	if done, result, err := handleDeletionStrict(ctx, r.Client, &cr, func() error {
+		return r.deleteProvider(ctx, cr.Status.ProviderId)
+	}); done {
+		return result, err
 	}
 
 	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure email provider exists.
 	providerID, err := r.ensureEmailProvider(ctx, &cr)
 	if err != nil {
-		if isRefNotReady(err) {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "SecretNotFound", err.Error())
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "SecretNotFound", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, err
 	}
 
 	// Activate the provider.
-	if providerID != "" {
-		_, err := r.Zitadel.Admin().ActivateEmailProvider(ctx, &admin.ActivateEmailProviderRequest{
-			Id: providerID,
-		})
-		if err != nil && status.Code(err) != codes.FailedPrecondition {
-			// FailedPrecondition means already active — that's fine.
-			logger.Info("could not activate email provider (may already be active)", "error", err)
-		}
-	}
+	r.activateProvider(ctx, providerID)
 
 	// Update status.
-	if cr.Status.ProviderId != providerID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.ProviderId = providerID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
+	statusChanged := cr.Status.ProviderId != providerID
+	cr.Status.ProviderId = providerID
+	return ctrl.Result{RequeueAfter: requeueInterval}, markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged)
+}
 
-	logger.Info("emailprovider reconciled", "providerId", providerID)
-	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+func (r *EmailProviderReconciler) deleteProvider(ctx context.Context, providerID string) error {
+	if providerID == "" {
+		return nil
+	}
+	_, err := r.Zitadel.Admin().RemoveEmailProvider(ctx, &admin.RemoveEmailProviderRequest{Id: providerID})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("removing email provider: %w", err)
+	}
+	return nil
+}
+
+func (r *EmailProviderReconciler) activateProvider(ctx context.Context, providerID string) {
+	if providerID == "" {
+		return
+	}
+	_, err := r.Zitadel.Admin().ActivateEmailProvider(ctx, &admin.ActivateEmailProviderRequest{Id: providerID})
+	if err != nil && status.Code(err) != codes.FailedPrecondition {
+		log.FromContext(ctx).Info("could not activate email provider (may already be active)", "error", err)
+	}
 }
 
 func (r *EmailProviderReconciler) ensureEmailProvider(ctx context.Context, cr *zitadelv1alpha2.EmailProvider) (string, error) {
@@ -122,15 +109,10 @@ func (r *EmailProviderReconciler) ensureEmailProvider(ctx context.Context, cr *z
 
 func (r *EmailProviderReconciler) ensureSmtpProvider(ctx context.Context, cr *zitadelv1alpha2.EmailProvider) (string, error) {
 	smtp := cr.Spec.Smtp
-
-	// Resolve password from secret if provided.
 	password := ""
 	if smtp.PasswordSecretRef != nil {
 		secret := &corev1.Secret{}
-		if err := r.Get(ctx, types.NamespacedName{
-			Name:      smtp.PasswordSecretRef.Name,
-			Namespace: cr.Namespace,
-		}, secret); err != nil {
+		if err := r.Get(ctx, types.NamespacedName{Name: smtp.PasswordSecretRef.Name, Namespace: cr.Namespace}, secret); err != nil {
 			return "", fmt.Errorf("getting smtp password secret %s not yet ready: %w", smtp.PasswordSecretRef.Name, err)
 		}
 		key := smtp.PasswordSecretRef.Key
@@ -144,82 +126,47 @@ func (r *EmailProviderReconciler) ensureSmtpProvider(ctx context.Context, cr *zi
 		password = string(data)
 	}
 
-	// If we have a provider ID, update it.
 	if cr.Status.ProviderId != "" {
 		_, err := r.Zitadel.Admin().UpdateEmailProviderSMTP(ctx, &admin.UpdateEmailProviderSMTPRequest{
-			Id:             cr.Status.ProviderId,
-			Description:    smtp.Description,
-			SenderAddress:  smtp.SenderAddress,
-			SenderName:     smtp.SenderName,
-			ReplyToAddress: smtp.ReplyToAddress,
-			Tls:            smtp.Tls,
-			Host:           smtp.Host,
-			User:           smtp.User,
+			Id: cr.Status.ProviderId, Description: smtp.Description, SenderAddress: smtp.SenderAddress,
+			SenderName: smtp.SenderName, ReplyToAddress: smtp.ReplyToAddress, Tls: smtp.Tls, Host: smtp.Host, User: smtp.User,
 		})
-		if err != nil {
-			if status.Code(err) == codes.NotFound {
-				// Deleted externally, recreate below.
-			} else {
-				return "", fmt.Errorf("updating smtp email provider: %w", err)
-			}
-		} else {
-			// Update password separately if set.
+		if err == nil {
 			if password != "" {
-				_, _ = r.Zitadel.Admin().UpdateEmailProviderSMTPPassword(ctx, &admin.UpdateEmailProviderSMTPPasswordRequest{
-					Id:       cr.Status.ProviderId,
-					Password: password,
-				})
+				_, _ = r.Zitadel.Admin().UpdateEmailProviderSMTPPassword(ctx, &admin.UpdateEmailProviderSMTPPasswordRequest{Id: cr.Status.ProviderId, Password: password})
 			}
 			return cr.Status.ProviderId, nil
 		}
+		if status.Code(err) != codes.NotFound {
+			return "", fmt.Errorf("updating smtp email provider: %w", err)
+		}
 	}
 
-	// Create new SMTP provider.
 	resp, err := r.Zitadel.Admin().AddEmailProviderSMTP(ctx, &admin.AddEmailProviderSMTPRequest{
-		Description:    smtp.Description,
-		SenderAddress:  smtp.SenderAddress,
-		SenderName:     smtp.SenderName,
-		ReplyToAddress: smtp.ReplyToAddress,
-		Tls:            smtp.Tls,
-		Host:           smtp.Host,
-		User:           smtp.User,
-		Password:       password,
+		Description: smtp.Description, SenderAddress: smtp.SenderAddress, SenderName: smtp.SenderName,
+		ReplyToAddress: smtp.ReplyToAddress, Tls: smtp.Tls, Host: smtp.Host, User: smtp.User, Password: password,
 	})
 	if err != nil {
 		return "", fmt.Errorf("adding smtp email provider: %w", err)
 	}
-
 	return resp.GetId(), nil
 }
 
 func (r *EmailProviderReconciler) ensureHttpProvider(ctx context.Context, cr *zitadelv1alpha2.EmailProvider) (string, error) {
 	httpSpec := cr.Spec.Http
-
-	// If we have a provider ID, update it.
 	if cr.Status.ProviderId != "" {
-		_, err := r.Zitadel.Admin().UpdateEmailProviderHTTP(ctx, &admin.UpdateEmailProviderHTTPRequest{
-			Id:       cr.Status.ProviderId,
-			Endpoint: httpSpec.Endpoint,
-		})
-		if err != nil {
-			if status.Code(err) == codes.NotFound {
-				// Deleted externally, recreate below.
-			} else {
-				return "", fmt.Errorf("updating http email provider: %w", err)
-			}
-		} else {
+		_, err := r.Zitadel.Admin().UpdateEmailProviderHTTP(ctx, &admin.UpdateEmailProviderHTTPRequest{Id: cr.Status.ProviderId, Endpoint: httpSpec.Endpoint})
+		if err == nil {
 			return cr.Status.ProviderId, nil
 		}
+		if status.Code(err) != codes.NotFound {
+			return "", fmt.Errorf("updating http email provider: %w", err)
+		}
 	}
-
-	// Create new HTTP provider.
-	resp, err := r.Zitadel.Admin().AddEmailProviderHTTP(ctx, &admin.AddEmailProviderHTTPRequest{
-		Endpoint: httpSpec.Endpoint,
-	})
+	resp, err := r.Zitadel.Admin().AddEmailProviderHTTP(ctx, &admin.AddEmailProviderHTTPRequest{Endpoint: httpSpec.Endpoint})
 	if err != nil {
 		return "", fmt.Errorf("adding http email provider: %w", err)
 	}
-
 	return resp.GetId(), nil
 }
 

@@ -5,23 +5,20 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
-	"github.com/truvity/zitadel-operator/internal/config"
-	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/zitadel"
 )
 
 // UserGrantReconciler reconciles a UserGrant object.
@@ -36,8 +33,6 @@ type UserGrantReconciler struct {
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=usergrants/finalizers,verbs=update
 
 func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var cr zitadelv1alpha2.UserGrant
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -46,9 +41,8 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Resolve organization.
 	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for organization ref to become ready", "error", err)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
@@ -59,9 +53,8 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Resolve user ID.
 	userID, err := r.resolveUserID(ctx, &cr)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for user ref to become ready", "error", err)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "UserNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving user: %w", err)
 	}
@@ -69,37 +62,23 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Resolve project ID.
 	projectID, _, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for project ref to become ready", "error", err)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
 	}
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
-		if cr.Status.GrantId != "" {
-			_, err := r.Zitadel.Management().RemoveUserGrant(ctx, &management.RemoveUserGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
-				UserId:  userID,
-				GrantId: cr.Status.GrantId,
-			})
-			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("removing user grant: %w", err)
-			}
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+	// Deletion.
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
+		return r.deleteGrant(ctx, userID, cr.Status.GrantId)
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure user grant exists with correct roles.
@@ -108,20 +87,30 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	if cr.Status.GrantId != grantID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.GrantId = grantID
-		cr.Status.Ready = true
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		cr.Status.LastSyncTime = &now
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.GrantId != grantID
+	cr.Status.GrantId = grantID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	logger.Info("usergrant reconciled", "grantId", grantID, "userId", userID, "projectId", projectID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *UserGrantReconciler) deleteGrant(ctx context.Context, userID, grantID string) error {
+	if grantID == "" {
+		return nil
+	}
+	_, err := r.Zitadel.Management().RemoveUserGrant(ctx, &management.RemoveUserGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+		UserId:  userID,
+		GrantId: grantID,
+	})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("removing user grant: %w", err)
+	}
+	return nil
 }
 
 func (r *UserGrantReconciler) resolveUserID(ctx context.Context, cr *zitadelv1alpha2.UserGrant) (string, error) {
@@ -202,7 +191,6 @@ func (r *UserGrantReconciler) ensureUserGrant(ctx context.Context, userID, proje
 
 	for _, grant := range listResp.GetResult() {
 		if grant.GetProjectId() == projectID && grant.GetUserId() == userID {
-			// Found existing grant, update roles if needed.
 			if !rolesEqual(grant.GetRoleKeys(), desiredRoles) {
 				_, err := r.Zitadel.Management().UpdateUserGrant(ctx, &management.UpdateUserGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 					UserId:   userID,

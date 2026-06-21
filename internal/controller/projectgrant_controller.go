@@ -3,21 +3,18 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
-
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 )
 
 // ProjectGrantReconciler reconciles a ProjectGrant object.
@@ -32,8 +29,6 @@ type ProjectGrantReconciler struct {
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectgrants/finalizers,verbs=update
 
 func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var cr zitadelv1alpha2.ProjectGrant
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -42,9 +37,8 @@ func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Resolve organization (the owning org).
 	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for organization ref to become ready", "error", err)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
@@ -55,9 +49,8 @@ func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Resolve project ID.
 	projectID, _, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for project ref to become ready", "error", err)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
 	}
@@ -65,37 +58,22 @@ func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Resolve granted org ID.
 	grantedOrgID, err := r.resolveGrantedOrgID(ctx, &cr)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for granted org ref to become ready", "error", err)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "GrantedOrgNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving granted org: %w", err)
 	}
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
-		if cr.Status.GrantId != "" {
-			_, err := r.Zitadel.Management().RemoveProjectGrant(ctx, &management.RemoveProjectGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
-				ProjectId: projectID,
-				GrantId:   cr.Status.GrantId,
-			})
-			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("removing project grant: %w", err)
-			}
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
+		return r.deleteGrant(ctx, projectID, cr.Status.GrantId)
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure project grant exists.
@@ -104,20 +82,30 @@ func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	if cr.Status.GrantId != grantID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.GrantId = grantID
-		cr.Status.Ready = true
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		cr.Status.LastSyncTime = &now
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.GrantId != grantID
+	cr.Status.GrantId = grantID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	logger.Info("projectgrant reconciled", "grantId", grantID, "projectId", projectID, "grantedOrgId", grantedOrgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *ProjectGrantReconciler) deleteGrant(ctx context.Context, projectID, grantID string) error {
+	if grantID == "" {
+		return nil
+	}
+	_, err := r.Zitadel.Management().RemoveProjectGrant(ctx, &management.RemoveProjectGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+		ProjectId: projectID,
+		GrantId:   grantID,
+	})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("removing project grant: %w", err)
+	}
+	return nil
 }
 
 func (r *ProjectGrantReconciler) resolveGrantedOrgID(ctx context.Context, cr *zitadelv1alpha2.ProjectGrant) (string, error) {

@@ -3,12 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -53,29 +51,24 @@ func (r *IdentityProviderReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	// Set org context for Management API calls.
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		if cr.Status.IdpId != "" {
 			_, err := r.Zitadel.Management().DeleteProvider(ctx, &management.DeleteProviderRequest{
 				Id: cr.Status.IdpId,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
-				return ctrl.Result{}, fmt.Errorf("deleting identity provider: %w", err)
+				return err
 			}
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure IDP exists.
@@ -84,16 +77,13 @@ func (r *IdentityProviderReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	// Update status.
-	if cr.Status.IdpId != idpID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.IdpId = idpID
-		cr.Status.Ready = true
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		cr.Status.LastSyncTime = &now
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.IdpId != idpID
+	cr.Status.IdpId = idpID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("identityprovider reconciled", "idpId", idpID)

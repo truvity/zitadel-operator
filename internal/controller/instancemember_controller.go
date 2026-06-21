@@ -3,11 +3,9 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -46,27 +44,22 @@ func (r *InstanceMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, fmt.Errorf("resolving user: %w", err)
 	}
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		_, err := r.Zitadel.Admin().RemoveIAMMember(ctx, &admin.RemoveIAMMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			UserId: userID,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
-			return ctrl.Result{}, fmt.Errorf("removing IAM member: %w", err)
+			return err
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure instance member exists — try update first, then add.
@@ -89,15 +82,11 @@ func (r *InstanceMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	// Update status.
-	if !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, false); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("instancemember reconciled", "userId", userID)

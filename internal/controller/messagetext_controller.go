@@ -3,19 +3,20 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 
 	"google.golang.org/grpc/metadata"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
-
-	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 )
 
 // MessageTextReconciler reconciles a MessageText object.
@@ -30,8 +31,6 @@ type MessageTextReconciler struct {
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=messagetexts/finalizers,verbs=update
 
 func (r *MessageTextReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
 	var cr zitadelv1alpha2.MessageText
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -40,11 +39,8 @@ func (r *MessageTextReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Resolve organization.
 	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for organization ref to become ready", "error", err)
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "OrgNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
@@ -52,54 +48,49 @@ func (r *MessageTextReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 	spec := &cr.Spec.MessageTextFields
 
-	// Handle deletion: reset to default.
-	if !cr.DeletionTimestamp.IsZero() {
-		if err := r.resetCustomMessageText(ctx, spec); err != nil {
-			logger.Info("could not reset custom message text", "type", spec.Type, "error", err)
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
+		if resetErr := r.resetCustomMessageText(ctx, spec); resetErr != nil {
+			log.FromContext(ctx).Info("could not reset custom message text", "type", spec.Type, "error", resetErr)
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Warn if email-only fields are set for verifySmsOtp.
-	if spec.Type == "verifySmsOtp" {
-		if spec.Title != "" || spec.Subject != "" || spec.PreHeader != "" || spec.Greeting != "" || spec.ButtonText != "" || spec.FooterText != "" {
-			logger.Info("WARNING: verifySmsOtp only uses language and text fields; other fields are ignored by Zitadel")
-			setCondition(&cr.Status.Conditions, "SmsFieldWarning", metav1.ConditionTrue, "IgnoredFields", "verifySmsOtp type only uses language and text; other fields are ignored")
-		}
-	}
+	r.warnSmsOtpFields(ctx, &cr, spec)
 
 	// Set the custom message text (idempotent — always call Set on every reconcile).
 	if err := r.setCustomMessageText(ctx, spec); err != nil {
 		return ctrl.Result{}, fmt.Errorf("setting custom message text (type=%s): %w", spec.Type, err)
 	}
 
-	// Update status.
-	statusChanged := cr.Status.OrganizationId != orgID || !cr.Status.Ready
-	if statusChanged {
-		now := metav1.NewTime(time.Now())
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.OrganizationId != orgID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	logger.Info("messagetext reconciled", "type", spec.Type, "language", spec.Language, "orgId", orgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *MessageTextReconciler) warnSmsOtpFields(ctx context.Context, cr *zitadelv1alpha2.MessageText, spec *zitadelv1alpha2.MessageTextFields) {
+	if spec.Type != "verifySmsOtp" {
+		return
+	}
+	if spec.Title != "" || spec.Subject != "" || spec.PreHeader != "" || spec.Greeting != "" || spec.ButtonText != "" || spec.FooterText != "" {
+		log.FromContext(ctx).Info("WARNING: verifySmsOtp only uses language and text fields; other fields are ignored by Zitadel")
+		setCondition(&cr.Status.Conditions, "SmsFieldWarning", metav1.ConditionTrue, "IgnoredFields", "verifySmsOtp type only uses language and text; other fields are ignored")
+	}
 }
 
 func (r *MessageTextReconciler) setCustomMessageText(ctx context.Context, spec *zitadelv1alpha2.MessageTextFields) error {

@@ -3,12 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -52,30 +50,24 @@ func (r *LabelPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Set org context for Management API calls.
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		_, err := r.Zitadel.Management().ResetLabelPolicyToDefault(ctx, &management.ResetLabelPolicyToDefaultRequest{})
 		if err != nil && status.Code(err) != codes.NotFound {
-			logger.Info("could not reset label policy to default", "error", err)
+			return err
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// Ensure label policy exists.
-	err = r.ensureLabelPolicy(ctx, &cr)
-	if err != nil {
+	// Business logic.
+	if err := r.ensureLabelPolicy(ctx, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -85,16 +77,13 @@ func (r *LabelPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		logger.Info("could not activate label policy (may already be active)", "error", err)
 	}
 
-	// Update status.
-	if cr.Status.OrganizationId != orgID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.OrganizationId != orgID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("labelpolicy reconciled", "orgId", orgID)

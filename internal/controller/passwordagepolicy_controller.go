@@ -3,12 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -49,32 +47,44 @@ func (r *PasswordAgePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
 
-	// Set org context for Management API calls.
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
-	// Handle deletion.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		_, err := r.Zitadel.Management().ResetPasswordAgePolicyToDefault(ctx, &management.ResetPasswordAgePolicyToDefaultRequest{})
 		if err != nil && status.Code(err) != codes.NotFound {
-			logger.Info("could not reset password age policy to default", "error", err)
+			return nil // non-critical
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// Ensure password age policy exists.
-	_, err = r.Zitadel.Management().UpdateCustomPasswordAgePolicy(ctx, &management.UpdateCustomPasswordAgePolicyRequest{
+	// Business logic.
+	if err := r.reconcileSpec(ctx, &cr); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Status.
+	statusChanged := cr.Status.OrganizationId != orgID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("passwordagepolicy reconciled", "orgId", orgID)
+	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *PasswordAgePolicyReconciler) reconcileSpec(ctx context.Context, cr *zitadelv1alpha2.PasswordAgePolicy) error {
+	_, err := r.Zitadel.Management().UpdateCustomPasswordAgePolicy(ctx, &management.UpdateCustomPasswordAgePolicyRequest{
 		MaxAgeDays:     cr.Spec.MaxAgeDays,
 		ExpireWarnDays: cr.Spec.ExpireWarnDays,
 	})
@@ -85,27 +95,13 @@ func (r *PasswordAgePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				ExpireWarnDays: cr.Spec.ExpireWarnDays,
 			})
 			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("adding custom password age policy: %w", err)
+				return fmt.Errorf("adding custom password age policy: %w", err)
 			}
 		} else {
-			return ctrl.Result{}, fmt.Errorf("updating custom password age policy: %w", err)
+			return fmt.Errorf("updating custom password age policy: %w", err)
 		}
 	}
-
-	// Update status.
-	if cr.Status.OrganizationId != orgID || !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	logger.Info("passwordagepolicy reconciled", "orgId", orgID)
-	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

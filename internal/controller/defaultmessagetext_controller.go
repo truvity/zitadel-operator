@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,78 +33,67 @@ func (r *DefaultMessageTextReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Singleton conflict detection: only the earliest-created CR manages the instance.
-	// For DefaultMessageText, uniqueness is per (type, language) pair — but we use
-	// the same earliest-creation-timestamp approach for simplicity.
+	// Singleton conflict detection (per type+language pair).
+	if conflict := r.checkConflict(ctx, &cr); conflict {
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	}
+
+	spec := &cr.Spec.MessageTextFields
+
+	// Deletion.
+	if done, result, err := handleSingletonDeletion(ctx, r.Client, &cr, func() {
+		if err := r.resetDefaultMessageText(ctx, spec); err != nil {
+			logger.Info("could not reset default message text", "type", spec.Type, "error", err)
+		} else {
+			logger.Info("reset instance message text to defaults (reset-on-delete annotation present)", "type", spec.Type)
+		}
+	}); done {
+		return result, err
+	}
+
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Business logic.
+	r.warnSmsUnusedFields(ctx, &cr, spec)
+	if err := r.setDefaultMessageText(ctx, spec); err != nil {
+		return ctrl.Result{}, fmt.Errorf("setting default message text (type=%s): %w", spec.Type, err)
+	}
+
+	// Status.
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, false); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("defaultmessagetext reconciled", "type", spec.Type, "language", spec.Language)
+	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *DefaultMessageTextReconciler) checkConflict(ctx context.Context, cr *zitadelv1alpha2.DefaultMessageText) bool {
 	var list zitadelv1alpha2.DefaultMessageTextList
 	if err := r.List(ctx, &list); err != nil {
-		return ctrl.Result{}, err
+		return false
 	}
 	for i := range list.Items {
 		other := &list.Items[i]
 		if other.UID == cr.UID {
 			continue
 		}
-		// Only conflict if same type and language.
 		if other.Spec.Type == cr.Spec.Type &&
 			other.Spec.Language == cr.Spec.Language &&
 			other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
 				fmt.Sprintf("another DefaultMessageText %s/%s (created earlier) is already managing type=%s language=%s", other.Namespace, other.Name, other.Spec.Type, other.Spec.Language))
 			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
+			_ = r.Status().Update(ctx, cr)
+			return true
 		}
 	}
-
-	spec := &cr.Spec.MessageTextFields
-
-	// Handle deletion: reset to default.
-	if !cr.DeletionTimestamp.IsZero() {
-		if shouldResetOnDelete(&cr) {
-			// Zitadel's ResetCustom*MessageTextToDefault API restores the built-in message template.
-			if err := r.resetDefaultMessageText(ctx, spec); err != nil {
-				logger.Info("could not reset default message text", "type", spec.Type, "error", err)
-			} else {
-				logger.Info("reset instance message text to defaults (reset-on-delete annotation present)", "type", spec.Type)
-			}
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Warn if email-only fields are set for verifySmsOtp.
-	r.warnSmsUnusedFields(ctx, &cr, spec)
-
-	// Set the message text (idempotent — always call Set on every reconcile).
-	if err := r.setDefaultMessageText(ctx, spec); err != nil {
-		return ctrl.Result{}, fmt.Errorf("setting default message text (type=%s): %w", spec.Type, err)
-	}
-
-	// Update status.
-	if !cr.Status.Ready {
-		now := metav1.NewTime(time.Now())
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	logger.Info("defaultmessagetext reconciled", "type", spec.Type, "language", spec.Language)
-	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+	return false
 }
 
 func (r *DefaultMessageTextReconciler) warnSmsUnusedFields(ctx context.Context, cr *zitadelv1alpha2.DefaultMessageText, spec *zitadelv1alpha2.MessageTextFields) {

@@ -54,63 +54,52 @@ func (r *LoginPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
-	// Handle deletion: reset to default.
-	if !cr.DeletionTimestamp.IsZero() {
+	// Deletion.
+	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		_, err := r.Zitadel.Management().ResetLoginPolicyToDefault(ctx, &management.ResetLoginPolicyToDefaultRequest{})
 		if err != nil && status.Code(err) != codes.NotFound {
-			logger.Info("could not reset login policy to default", "error", err)
+			return err
 		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return nil
+	}); done {
+		return result, err
 	}
 
-	// Add finalizer.
-	if addFinalizer(&cr) {
-		if err := r.Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Finalizer.
+	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// Check if custom policy already exists.
-	currentResp, err := r.Zitadel.Management().GetLoginPolicy(ctx, &management.GetLoginPolicyRequest{})
-	if err != nil && status.Code(err) != codes.NotFound {
-		return ctrl.Result{}, fmt.Errorf("getting login policy: %w", err)
+	// Business logic.
+	if err := r.reconcileSpec(ctx, &cr.Spec); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	// Determine if a custom policy exists (not the default).
-	hasCustomPolicy := currentResp != nil && currentResp.GetPolicy() != nil && !currentResp.GetPolicy().GetIsDefault()
-
-	if hasCustomPolicy {
-		// Custom policy exists, update it.
-		if err := r.updateCustomPolicy(ctx, &cr.Spec); err != nil {
-			return ctrl.Result{}, fmt.Errorf("updating custom login policy: %w", err)
-		}
-	} else {
-		// No custom policy yet, create one.
-		if err := r.addCustomPolicy(ctx, &cr.Spec); err != nil {
-			return ctrl.Result{}, fmt.Errorf("adding custom login policy: %w", err)
-		}
-	}
-
-	// Update status.
-	statusChanged := cr.Status.OrganizationId != orgID || !cr.Status.Ready
-	if statusChanged {
-		now := metav1.NewTime(time.Now())
-		cr.Status.OrganizationId = orgID
-		cr.Status.Ready = true
-		cr.Status.LastSyncTime = &now
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Status.
+	statusChanged := cr.Status.OrganizationId != orgID
+	cr.Status.OrganizationId = orgID
+	if err := markReady(ctx, r.Client, &cr, statusFields{
+		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
+	}, statusChanged); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("loginpolicy reconciled", "orgId", orgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *LoginPolicyReconciler) reconcileSpec(ctx context.Context, spec *zitadelv1alpha2.LoginPolicySpec) error {
+	currentResp, err := r.Zitadel.Management().GetLoginPolicy(ctx, &management.GetLoginPolicyRequest{})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("getting login policy: %w", err)
+	}
+
+	hasCustomPolicy := currentResp != nil && currentResp.GetPolicy() != nil && !currentResp.GetPolicy().GetIsDefault()
+
+	if hasCustomPolicy {
+		return r.updateCustomPolicy(ctx, spec)
+	}
+	return r.addCustomPolicy(ctx, spec)
 }
 
 func (r *LoginPolicyReconciler) addCustomPolicy(ctx context.Context, spec *zitadelv1alpha2.LoginPolicySpec) error {
@@ -132,7 +121,10 @@ func (r *LoginPolicyReconciler) addCustomPolicy(ctx context.Context, spec *zitad
 	setLifetimeFields(spec, req)
 
 	_, err := r.Zitadel.Management().AddCustomLoginPolicy(ctx, req)
-	return err
+	if err != nil {
+		return fmt.Errorf("adding custom login policy: %w", err)
+	}
+	return nil
 }
 
 func (r *LoginPolicyReconciler) updateCustomPolicy(ctx context.Context, spec *zitadelv1alpha2.LoginPolicySpec) error {
@@ -178,11 +170,13 @@ func (r *LoginPolicyReconciler) updateCustomPolicy(ctx context.Context, spec *zi
 	}
 
 	_, err := r.Zitadel.Management().UpdateCustomLoginPolicy(ctx, req)
-	return err
+	if err != nil {
+		return fmt.Errorf("updating custom login policy: %w", err)
+	}
+	return nil
 }
 
 // setLifetimeFields sets lifetime fields on the AddCustomLoginPolicyRequest.
-// This is a separate function to avoid code duplication with the proto message type.
 func setLifetimeFields(spec *zitadelv1alpha2.LoginPolicySpec, req *management.AddCustomLoginPolicyRequest) {
 	if spec.PasswordCheckLifetime != "" {
 		if d, err := time.ParseDuration(spec.PasswordCheckLifetime); err == nil {
