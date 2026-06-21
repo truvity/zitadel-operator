@@ -14,6 +14,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+	policyv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 )
 
 // DefaultPasswordComplexityPolicyReconciler reconciles a DefaultPasswordComplexityPolicy object.
@@ -39,18 +40,13 @@ func (r *DefaultPasswordComplexityPolicyReconciler) Reconcile(ctx context.Contex
 	if err := r.List(ctx, &list); err != nil {
 		return ctrl.Result{}, err
 	}
+	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == cr.UID {
-			continue
-		}
-		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
-				fmt.Sprintf("another DefaultPasswordComplexityPolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
-			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
-		}
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultPasswordComplexityPolicy") {
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// Handle deletion.
@@ -89,28 +85,7 @@ func (r *DefaultPasswordComplexityPolicyReconciler) Reconcile(ctx context.Contex
 
 	// Detect drift and update if needed.
 	policy := current.GetPolicy()
-	drifted := false
-	if policy != nil {
-		if cr.Spec.MinLength != policy.GetMinLength() {
-			drifted = true
-		}
-		if cr.Spec.HasLowercase != policy.GetHasLowercase() {
-			drifted = true
-		}
-		if cr.Spec.HasUppercase != policy.GetHasUppercase() {
-			drifted = true
-		}
-		if cr.Spec.HasNumber != policy.GetHasNumber() {
-			drifted = true
-		}
-		if cr.Spec.HasSymbol != policy.GetHasSymbol() {
-			drifted = true
-		}
-	} else {
-		drifted = true
-	}
-
-	if drifted {
+	if r.hasDrift(&cr.Spec, policy) {
 		minLength := cr.Spec.MinLength
 		if minLength > uint64(^uint32(0)) {
 			minLength = uint64(^uint32(0))
@@ -141,6 +116,29 @@ func (r *DefaultPasswordComplexityPolicyReconciler) Reconcile(ctx context.Contex
 
 	logger.Info("defaultpasswordcomplexitypolicy reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// hasDrift checks if the current password complexity policy differs from the desired spec.
+func (r *DefaultPasswordComplexityPolicyReconciler) hasDrift(spec *zitadelv1alpha2.DefaultPasswordComplexityPolicySpec, policy *policyv1.PasswordComplexityPolicy) bool {
+	if policy == nil {
+		return true
+	}
+	if spec.MinLength != policy.GetMinLength() {
+		return true
+	}
+	if spec.HasLowercase != policy.GetHasLowercase() {
+		return true
+	}
+	if spec.HasUppercase != policy.GetHasUppercase() {
+		return true
+	}
+	if spec.HasNumber != policy.GetHasNumber() {
+		return true
+	}
+	if spec.HasSymbol != policy.GetHasSymbol() {
+		return true
+	}
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.

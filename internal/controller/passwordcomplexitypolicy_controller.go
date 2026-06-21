@@ -80,46 +80,9 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, fmt.Errorf("getting password complexity policy: %w", err)
 	}
 
-	// Detect drift.
-	needsUpdate := true
-	if currentResp != nil && currentResp.GetPolicy() != nil {
-		p := currentResp.GetPolicy()
-		if p.GetMinLength() == cr.Spec.MinLength &&
-			p.GetHasLowercase() == cr.Spec.HasLowercase &&
-			p.GetHasUppercase() == cr.Spec.HasUppercase &&
-			p.GetHasNumber() == cr.Spec.HasNumber &&
-			p.GetHasSymbol() == cr.Spec.HasSymbol &&
-			!p.GetIsDefault() {
-			needsUpdate = false
-		}
-	}
-
-	if needsUpdate {
-		// Try update first; if not found (no custom policy), add.
-		_, err := r.Zitadel.Management().UpdateCustomPasswordComplexityPolicy(ctx, &management.UpdateCustomPasswordComplexityPolicyRequest{
-			MinLength:    cr.Spec.MinLength,
-			HasLowercase: cr.Spec.HasLowercase,
-			HasUppercase: cr.Spec.HasUppercase,
-			HasNumber:    cr.Spec.HasNumber,
-			HasSymbol:    cr.Spec.HasSymbol,
-		})
-		if err != nil {
-			if status.Code(err) == codes.NotFound {
-				_, err = r.Zitadel.Management().AddCustomPasswordComplexityPolicy(ctx, &management.AddCustomPasswordComplexityPolicyRequest{
-					MinLength:    cr.Spec.MinLength,
-					HasLowercase: cr.Spec.HasLowercase,
-					HasUppercase: cr.Spec.HasUppercase,
-					HasNumber:    cr.Spec.HasNumber,
-					HasSymbol:    cr.Spec.HasSymbol,
-				})
-				if err != nil {
-					return ctrl.Result{}, fmt.Errorf("adding custom password complexity policy: %w", err)
-				}
-			} else {
-				return ctrl.Result{}, fmt.Errorf("updating custom password complexity policy: %w", err)
-			}
-		}
-		logger.Info("password complexity policy synced")
+	// Sync the policy.
+	if err := r.syncPolicy(ctx, &cr.Spec, currentResp); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Update status.
@@ -137,6 +100,52 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 
 	logger.Info("passwordcomplexitypolicy reconciled", "orgId", orgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// syncPolicy creates or updates the custom password complexity policy if drift is detected.
+func (r *PasswordComplexityPolicyReconciler) syncPolicy(ctx context.Context, spec *zitadelv1alpha2.PasswordComplexityPolicySpec, currentResp *management.GetPasswordComplexityPolicyResponse) error {
+	needsUpdate := true
+	if currentResp != nil && currentResp.GetPolicy() != nil {
+		p := currentResp.GetPolicy()
+		if p.GetMinLength() == spec.MinLength &&
+			p.GetHasLowercase() == spec.HasLowercase &&
+			p.GetHasUppercase() == spec.HasUppercase &&
+			p.GetHasNumber() == spec.HasNumber &&
+			p.GetHasSymbol() == spec.HasSymbol &&
+			!p.GetIsDefault() {
+			needsUpdate = false
+		}
+	}
+
+	if !needsUpdate {
+		return nil
+	}
+
+	// Try update first; if not found (no custom policy), add.
+	_, err := r.Zitadel.Management().UpdateCustomPasswordComplexityPolicy(ctx, &management.UpdateCustomPasswordComplexityPolicyRequest{
+		MinLength:    spec.MinLength,
+		HasLowercase: spec.HasLowercase,
+		HasUppercase: spec.HasUppercase,
+		HasNumber:    spec.HasNumber,
+		HasSymbol:    spec.HasSymbol,
+	})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			_, err = r.Zitadel.Management().AddCustomPasswordComplexityPolicy(ctx, &management.AddCustomPasswordComplexityPolicyRequest{
+				MinLength:    spec.MinLength,
+				HasLowercase: spec.HasLowercase,
+				HasUppercase: spec.HasUppercase,
+				HasNumber:    spec.HasNumber,
+				HasSymbol:    spec.HasSymbol,
+			})
+			if err != nil {
+				return fmt.Errorf("adding custom password complexity policy: %w", err)
+			}
+		} else {
+			return fmt.Errorf("updating custom password complexity policy: %w", err)
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -169,6 +170,33 @@ func setCondition(conditions *[]metav1.Condition, conditionType string, status m
 		Message:            message,
 		LastTransitionTime: now,
 	})
+}
+
+// singletonCandidate holds the minimal info needed for conflict detection.
+type singletonCandidate struct {
+	UID               types.UID
+	Name              string
+	Namespace         string
+	CreationTimestamp metav1.Time
+	IsDeleting        bool
+}
+
+// checkSingletonConflict determines if this CR should yield to an earlier-created CR of the same kind.
+// Returns true if the CR is a duplicate (conditions and ready status updated), false if it should proceed.
+func checkSingletonConflict(cr client.Object, candidates []singletonCandidate, conditions *[]metav1.Condition, ready *bool, kindName string) bool {
+	crTime := cr.GetCreationTimestamp()
+	for _, other := range candidates {
+		if other.UID == cr.GetUID() {
+			continue
+		}
+		if other.CreationTimestamp.Before(&crTime) && !other.IsDeleting {
+			setCondition(conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
+				fmt.Sprintf("another %s %s/%s (created earlier) is already managing this instance singleton", kindName, other.Namespace, other.Name))
+			*ready = false
+			return true
+		}
+	}
+	return false
 }
 
 // resolveAppId resolves an application ID from either an AppRef or explicit AppId.

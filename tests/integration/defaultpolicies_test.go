@@ -11,8 +11,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+
+	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 )
 
 // --- DefaultLockoutPolicy ---

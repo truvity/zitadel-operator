@@ -14,6 +14,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+	policyv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 )
 
 // DefaultNotificationPolicyReconciler reconciles a DefaultNotificationPolicy object.
@@ -39,18 +40,13 @@ func (r *DefaultNotificationPolicyReconciler) Reconcile(ctx context.Context, req
 	if err := r.List(ctx, &list); err != nil {
 		return ctrl.Result{}, err
 	}
+	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == cr.UID {
-			continue
-		}
-		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
-				fmt.Sprintf("another DefaultNotificationPolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
-			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
-		}
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultNotificationPolicy") {
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// Handle deletion.
@@ -85,20 +81,7 @@ func (r *DefaultNotificationPolicyReconciler) Reconcile(ctx context.Context, req
 
 	// Detect drift and update if needed.
 	policy := current.GetPolicy()
-	drifted := false
-	if policy != nil {
-		desiredPasswordChange := false
-		if cr.Spec.PasswordChange != nil {
-			desiredPasswordChange = *cr.Spec.PasswordChange
-		}
-		if desiredPasswordChange != policy.GetPasswordChange() {
-			drifted = true
-		}
-	} else {
-		drifted = true
-	}
-
-	if drifted {
+	if r.hasDrift(&cr.Spec, policy) {
 		passwordChange := false
 		if cr.Spec.PasswordChange != nil {
 			passwordChange = *cr.Spec.PasswordChange
@@ -125,6 +108,18 @@ func (r *DefaultNotificationPolicyReconciler) Reconcile(ctx context.Context, req
 
 	logger.Info("defaultnotificationpolicy reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// hasDrift checks if the current notification policy differs from the desired spec.
+func (r *DefaultNotificationPolicyReconciler) hasDrift(spec *zitadelv1alpha2.DefaultNotificationPolicySpec, policy *policyv1.NotificationPolicy) bool {
+	if policy == nil {
+		return true
+	}
+	desiredPasswordChange := false
+	if spec.PasswordChange != nil {
+		desiredPasswordChange = *spec.PasswordChange
+	}
+	return desiredPasswordChange != policy.GetPasswordChange()
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -14,6 +14,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+	policyv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 )
 
 // DefaultPasswordAgePolicyReconciler reconciles a DefaultPasswordAgePolicy object.
@@ -39,18 +40,13 @@ func (r *DefaultPasswordAgePolicyReconciler) Reconcile(ctx context.Context, req 
 	if err := r.List(ctx, &list); err != nil {
 		return ctrl.Result{}, err
 	}
+	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == cr.UID {
-			continue
-		}
-		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
-				fmt.Sprintf("another DefaultPasswordAgePolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
-			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
-		}
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultPasswordAgePolicy") {
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// Handle deletion.
@@ -86,19 +82,7 @@ func (r *DefaultPasswordAgePolicyReconciler) Reconcile(ctx context.Context, req 
 
 	// Detect drift and update if needed.
 	policy := current.GetPolicy()
-	drifted := false
-	if policy != nil {
-		if uint64(cr.Spec.MaxAgeDays) != policy.GetMaxAgeDays() {
-			drifted = true
-		}
-		if uint64(cr.Spec.ExpireWarnDays) != policy.GetExpireWarnDays() {
-			drifted = true
-		}
-	} else {
-		drifted = true
-	}
-
-	if drifted {
+	if r.hasDrift(&cr.Spec, policy) {
 		_, err := r.Zitadel.Admin().UpdatePasswordAgePolicy(ctx, &admin.UpdatePasswordAgePolicyRequest{
 			MaxAgeDays:     cr.Spec.MaxAgeDays,
 			ExpireWarnDays: cr.Spec.ExpireWarnDays,
@@ -122,6 +106,20 @@ func (r *DefaultPasswordAgePolicyReconciler) Reconcile(ctx context.Context, req 
 
 	logger.Info("defaultpasswordagepolicy reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// hasDrift checks if the current password age policy differs from the desired spec.
+func (r *DefaultPasswordAgePolicyReconciler) hasDrift(spec *zitadelv1alpha2.DefaultPasswordAgePolicySpec, policy *policyv1.PasswordAgePolicy) bool {
+	if policy == nil {
+		return true
+	}
+	if uint64(spec.MaxAgeDays) != policy.GetMaxAgeDays() {
+		return true
+	}
+	if uint64(spec.ExpireWarnDays) != policy.GetExpireWarnDays() {
+		return true
+	}
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.

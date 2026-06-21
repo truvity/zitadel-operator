@@ -14,6 +14,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+	policyv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 )
 
 // DefaultDomainPolicyReconciler reconciles a DefaultDomainPolicy object.
@@ -39,18 +40,13 @@ func (r *DefaultDomainPolicyReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err := r.List(ctx, &list); err != nil {
 		return ctrl.Result{}, err
 	}
+	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == cr.UID {
-			continue
-		}
-		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
-				fmt.Sprintf("another DefaultDomainPolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
-			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
-		}
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultDomainPolicy") {
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// Handle deletion.
@@ -87,22 +83,7 @@ func (r *DefaultDomainPolicyReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	// Detect drift and update if needed.
 	policy := current.GetPolicy()
-	drifted := false
-	if policy != nil {
-		if cr.Spec.UserLoginMustBeDomain != nil && *cr.Spec.UserLoginMustBeDomain != policy.GetUserLoginMustBeDomain() {
-			drifted = true
-		}
-		if cr.Spec.ValidateOrgDomains != nil && *cr.Spec.ValidateOrgDomains != policy.GetValidateOrgDomains() {
-			drifted = true
-		}
-		if cr.Spec.SmtpSenderAddressMatchesInstanceDomain != nil && *cr.Spec.SmtpSenderAddressMatchesInstanceDomain != policy.GetSmtpSenderAddressMatchesInstanceDomain() {
-			drifted = true
-		}
-	} else {
-		drifted = true
-	}
-
-	if drifted {
+	if r.hasDrift(&cr.Spec, policy) {
 		_, err := r.Zitadel.Admin().UpdateDomainPolicy(ctx, &admin.UpdateDomainPolicyRequest{
 			UserLoginMustBeDomain:                  boolValue(cr.Spec.UserLoginMustBeDomain, true),
 			ValidateOrgDomains:                     boolValue(cr.Spec.ValidateOrgDomains, true),
@@ -127,6 +108,23 @@ func (r *DefaultDomainPolicyReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	logger.Info("defaultdomainpolicy reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// hasDrift checks if the current domain policy differs from the desired spec.
+func (r *DefaultDomainPolicyReconciler) hasDrift(spec *zitadelv1alpha2.DefaultDomainPolicySpec, policy *policyv1.DomainPolicy) bool {
+	if policy == nil {
+		return true
+	}
+	if spec.UserLoginMustBeDomain != nil && *spec.UserLoginMustBeDomain != policy.GetUserLoginMustBeDomain() {
+		return true
+	}
+	if spec.ValidateOrgDomains != nil && *spec.ValidateOrgDomains != policy.GetValidateOrgDomains() {
+		return true
+	}
+	if spec.SmtpSenderAddressMatchesInstanceDomain != nil && *spec.SmtpSenderAddressMatchesInstanceDomain != policy.GetSmtpSenderAddressMatchesInstanceDomain() {
+		return true
+	}
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.

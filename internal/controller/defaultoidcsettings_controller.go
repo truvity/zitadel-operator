@@ -15,6 +15,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/settings"
 )
 
 // DefaultOIDCSettingsReconciler reconciles a DefaultOIDCSettings object.
@@ -40,18 +41,13 @@ func (r *DefaultOIDCSettingsReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err := r.List(ctx, &list); err != nil {
 		return ctrl.Result{}, err
 	}
+	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == cr.UID {
-			continue
-		}
-		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
-				fmt.Sprintf("another DefaultOIDCSettings %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
-			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
-		}
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultOIDCSettings") {
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// Handle deletion.
@@ -106,26 +102,7 @@ func (r *DefaultOIDCSettingsReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	// Detect drift and update if needed.
-	settings := current.GetSettings()
-	drifted := false
-	if settings != nil {
-		if settings.GetAccessTokenLifetime() == nil || settings.GetAccessTokenLifetime().AsDuration() != accessTokenLifetime {
-			drifted = true
-		}
-		if settings.GetIdTokenLifetime() == nil || settings.GetIdTokenLifetime().AsDuration() != idTokenLifetime {
-			drifted = true
-		}
-		if settings.GetRefreshTokenIdleExpiration() == nil || settings.GetRefreshTokenIdleExpiration().AsDuration() != refreshTokenIdleExpiration {
-			drifted = true
-		}
-		if settings.GetRefreshTokenExpiration() == nil || settings.GetRefreshTokenExpiration().AsDuration() != refreshTokenExpiration {
-			drifted = true
-		}
-	} else {
-		drifted = true
-	}
-
-	if drifted {
+	if r.hasDrift(current.GetSettings(), accessTokenLifetime, idTokenLifetime, refreshTokenIdleExpiration, refreshTokenExpiration) {
 		_, err := r.Zitadel.Admin().UpdateOIDCSettings(ctx, &admin.UpdateOIDCSettingsRequest{
 			AccessTokenLifetime:        durationpb.New(accessTokenLifetime),
 			IdTokenLifetime:            durationpb.New(idTokenLifetime),
@@ -151,6 +128,26 @@ func (r *DefaultOIDCSettingsReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	logger.Info("defaultoidcsettings reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// hasDrift checks if the current OIDC settings differ from the desired state.
+func (r *DefaultOIDCSettingsReconciler) hasDrift(s *settings.OIDCSettings, accessTokenLifetime, idTokenLifetime, refreshTokenIdleExpiration, refreshTokenExpiration time.Duration) bool {
+	if s == nil {
+		return true
+	}
+	if s.GetAccessTokenLifetime() == nil || s.GetAccessTokenLifetime().AsDuration() != accessTokenLifetime {
+		return true
+	}
+	if s.GetIdTokenLifetime() == nil || s.GetIdTokenLifetime().AsDuration() != idTokenLifetime {
+		return true
+	}
+	if s.GetRefreshTokenIdleExpiration() == nil || s.GetRefreshTokenIdleExpiration().AsDuration() != refreshTokenIdleExpiration {
+		return true
+	}
+	if s.GetRefreshTokenExpiration() == nil || s.GetRefreshTokenExpiration().AsDuration() != refreshTokenExpiration {
+		return true
+	}
+	return false
 }
 
 // parseDurationOrDefault parses a duration string, returning a default if the string is empty.

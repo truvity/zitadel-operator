@@ -96,20 +96,11 @@ func (r *APIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Find or create app.
 	displayName := cr.DisplayName()
-	existingAppID, existingApp := r.findAppByName(ctx, projectID, displayName)
-
-	var clientID, clientSecret, appID string
-
-	if existingAppID == "" {
-		clientID, clientSecret, appID, err = r.createAPIApp(ctx, projectID, &cr)
-		if err != nil {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "CreateFailed", err.Error())
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{}, err
-		}
-	} else {
-		appID = existingAppID
-		clientID = r.getClientIDFromApp(existingApp)
+	appID, clientID, clientSecret, err := r.findOrCreateApp(ctx, projectID, displayName, &cr)
+	if err != nil {
+		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "CreateFailed", err.Error())
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{}, err
 	}
 
 	// Store credentials in Secret (for basic auth method).
@@ -142,6 +133,16 @@ func (r *APIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	logger.Info("apiapp reconciled", "appId", appID, "clientId", clientID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *APIAppReconciler) findOrCreateApp(ctx context.Context, projectID, displayName string, cr *zitadelv1alpha2.APIApp) (appID, clientID, clientSecret string, err error) {
+	existingAppID, existingApp := r.findAppByName(ctx, projectID, displayName)
+
+	if existingAppID == "" {
+		return r.createAPIApp(ctx, projectID, cr)
+	}
+
+	return existingAppID, r.getClientIDFromApp(existingApp), "", nil
 }
 
 func (r *APIAppReconciler) findAppByName(ctx context.Context, projectID, appName string) (string, *applicationv2.Application) {

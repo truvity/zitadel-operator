@@ -14,6 +14,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+	policyv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 )
 
 // DefaultLabelPolicyReconciler reconciles a DefaultLabelPolicy object.
@@ -39,18 +40,13 @@ func (r *DefaultLabelPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := r.List(ctx, &list); err != nil {
 		return ctrl.Result{}, err
 	}
+	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == cr.UID {
-			continue
-		}
-		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
-				fmt.Sprintf("another DefaultLabelPolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
-			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
-		}
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultLabelPolicy") {
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// Handle deletion.
@@ -95,43 +91,7 @@ func (r *DefaultLabelPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	// Detect drift and update if needed.
 	policy := current.GetPolicy()
-	drifted := false
-	if policy != nil {
-		if cr.Spec.PrimaryColor != policy.GetPrimaryColor() {
-			drifted = true
-		}
-		if cr.Spec.BackgroundColor != policy.GetBackgroundColor() {
-			drifted = true
-		}
-		if cr.Spec.WarnColor != policy.GetWarnColor() {
-			drifted = true
-		}
-		if cr.Spec.FontColor != policy.GetFontColor() {
-			drifted = true
-		}
-		if cr.Spec.PrimaryColorDark != policy.GetPrimaryColorDark() {
-			drifted = true
-		}
-		if cr.Spec.BackgroundColorDark != policy.GetBackgroundColorDark() {
-			drifted = true
-		}
-		if cr.Spec.WarnColorDark != policy.GetWarnColorDark() {
-			drifted = true
-		}
-		if cr.Spec.FontColorDark != policy.GetFontColorDark() {
-			drifted = true
-		}
-		if cr.Spec.HideLoginNameSuffix != policy.GetHideLoginNameSuffix() {
-			drifted = true
-		}
-		if cr.Spec.DisableWatermark != policy.GetDisableWatermark() {
-			drifted = true
-		}
-	} else {
-		drifted = true
-	}
-
-	if drifted {
+	if r.hasDrift(&cr.Spec, policy) {
 		_, err := r.Zitadel.Admin().UpdateLabelPolicy(ctx, &admin.UpdateLabelPolicyRequest{
 			PrimaryColor:        cr.Spec.PrimaryColor,
 			BackgroundColor:     cr.Spec.BackgroundColor,
@@ -170,6 +130,44 @@ func (r *DefaultLabelPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	logger.Info("defaultlabelpolicy reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// hasDrift checks if the current label policy differs from the desired spec.
+func (r *DefaultLabelPolicyReconciler) hasDrift(spec *zitadelv1alpha2.DefaultLabelPolicySpec, policy *policyv1.LabelPolicy) bool {
+	if policy == nil {
+		return true
+	}
+	if spec.PrimaryColor != policy.GetPrimaryColor() {
+		return true
+	}
+	if spec.BackgroundColor != policy.GetBackgroundColor() {
+		return true
+	}
+	if spec.WarnColor != policy.GetWarnColor() {
+		return true
+	}
+	if spec.FontColor != policy.GetFontColor() {
+		return true
+	}
+	if spec.PrimaryColorDark != policy.GetPrimaryColorDark() {
+		return true
+	}
+	if spec.BackgroundColorDark != policy.GetBackgroundColorDark() {
+		return true
+	}
+	if spec.WarnColorDark != policy.GetWarnColorDark() {
+		return true
+	}
+	if spec.FontColorDark != policy.GetFontColorDark() {
+		return true
+	}
+	if spec.HideLoginNameSuffix != policy.GetHideLoginNameSuffix() {
+		return true
+	}
+	if spec.DisableWatermark != policy.GetDisableWatermark() {
+		return true
+	}
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -98,21 +98,9 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Find or create app.
 	displayName := cr.DisplayName()
-	existingAppID, existingApp := r.findAppByName(ctx, projectID, displayName)
-
-	var clientID, clientSecret, appID string
-
-	if existingAppID == "" {
-		clientID, clientSecret, appID, err = r.createOIDCApp(ctx, projectID, &cr)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	} else {
-		appID = existingAppID
-		clientID = r.getClientIDFromApp(existingApp)
-		if err := r.updateOIDCAppIfNeeded(ctx, existingAppID, projectID, existingApp, &cr); err != nil {
-			return ctrl.Result{}, err
-		}
+	appID, clientID, clientSecret, err := r.findOrCreateApp(ctx, projectID, displayName, &cr)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Store credentials in Secret.
@@ -145,6 +133,21 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	logger.Info("oidcapp reconciled", "appId", appID, "clientId", clientID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+func (r *OIDCAppReconciler) findOrCreateApp(ctx context.Context, projectID, displayName string, cr *zitadelv1alpha2.OIDCApp) (appID, clientID, clientSecret string, err error) {
+	existingAppID, existingApp := r.findAppByName(ctx, projectID, displayName)
+
+	if existingAppID == "" {
+		return r.createOIDCApp(ctx, projectID, cr)
+	}
+
+	appID = existingAppID
+	clientID = r.getClientIDFromApp(existingApp)
+	if err := r.updateOIDCAppIfNeeded(ctx, existingAppID, projectID, existingApp, cr); err != nil {
+		return "", "", "", err
+	}
+	return appID, clientID, "", nil
 }
 
 func (r *OIDCAppReconciler) findAppByName(ctx context.Context, projectID, appName string) (string, *applicationv2.Application) {

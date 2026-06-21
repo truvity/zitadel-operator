@@ -80,36 +80,9 @@ func (r *LockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("getting lockout policy: %w", err)
 	}
 
-	// Detect drift.
-	needsUpdate := true
-	if currentResp != nil && currentResp.GetPolicy() != nil {
-		p := currentResp.GetPolicy()
-		if p.GetMaxPasswordAttempts() == uint64(cr.Spec.MaxPasswordAttempts) &&
-			p.GetMaxOtpAttempts() == uint64(cr.Spec.MaxOtpAttempts) &&
-			!p.GetIsDefault() {
-			needsUpdate = false
-		}
-	}
-
-	if needsUpdate {
-		_, err := r.Zitadel.Management().UpdateCustomLockoutPolicy(ctx, &management.UpdateCustomLockoutPolicyRequest{
-			MaxPasswordAttempts: cr.Spec.MaxPasswordAttempts,
-			MaxOtpAttempts:      cr.Spec.MaxOtpAttempts,
-		})
-		if err != nil {
-			if status.Code(err) == codes.NotFound {
-				_, err = r.Zitadel.Management().AddCustomLockoutPolicy(ctx, &management.AddCustomLockoutPolicyRequest{
-					MaxPasswordAttempts: cr.Spec.MaxPasswordAttempts,
-					MaxOtpAttempts:      cr.Spec.MaxOtpAttempts,
-				})
-				if err != nil {
-					return ctrl.Result{}, fmt.Errorf("adding custom lockout policy: %w", err)
-				}
-			} else {
-				return ctrl.Result{}, fmt.Errorf("updating custom lockout policy: %w", err)
-			}
-		}
-		logger.Info("lockout policy synced")
+	// Sync the policy.
+	if err := r.syncPolicy(ctx, &cr.Spec, currentResp); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Update status.
@@ -127,6 +100,42 @@ func (r *LockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	logger.Info("lockoutpolicy reconciled", "orgId", orgID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// syncPolicy creates or updates the custom lockout policy if drift is detected.
+func (r *LockoutPolicyReconciler) syncPolicy(ctx context.Context, spec *zitadelv1alpha2.LockoutPolicySpec, currentResp *management.GetLockoutPolicyResponse) error {
+	needsUpdate := true
+	if currentResp != nil && currentResp.GetPolicy() != nil {
+		p := currentResp.GetPolicy()
+		if p.GetMaxPasswordAttempts() == uint64(spec.MaxPasswordAttempts) &&
+			p.GetMaxOtpAttempts() == uint64(spec.MaxOtpAttempts) &&
+			!p.GetIsDefault() {
+			needsUpdate = false
+		}
+	}
+
+	if !needsUpdate {
+		return nil
+	}
+
+	_, err := r.Zitadel.Management().UpdateCustomLockoutPolicy(ctx, &management.UpdateCustomLockoutPolicyRequest{
+		MaxPasswordAttempts: spec.MaxPasswordAttempts,
+		MaxOtpAttempts:      spec.MaxOtpAttempts,
+	})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			_, err = r.Zitadel.Management().AddCustomLockoutPolicy(ctx, &management.AddCustomLockoutPolicyRequest{
+				MaxPasswordAttempts: spec.MaxPasswordAttempts,
+				MaxOtpAttempts:      spec.MaxOtpAttempts,
+			})
+			if err != nil {
+				return fmt.Errorf("adding custom lockout policy: %w", err)
+			}
+		} else {
+			return fmt.Errorf("updating custom lockout policy: %w", err)
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

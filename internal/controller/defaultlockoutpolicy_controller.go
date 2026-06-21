@@ -14,6 +14,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+	policyv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 )
 
 // DefaultLockoutPolicyReconciler reconciles a DefaultLockoutPolicy object.
@@ -39,18 +40,13 @@ func (r *DefaultLockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 	if err := r.List(ctx, &list); err != nil {
 		return ctrl.Result{}, err
 	}
+	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == cr.UID {
-			continue
-		}
-		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
-				fmt.Sprintf("another DefaultLockoutPolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
-			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
-		}
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultLockoutPolicy") {
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// Handle deletion.
@@ -86,19 +82,7 @@ func (r *DefaultLockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 
 	// Detect drift and update if needed.
 	policy := current.GetPolicy()
-	drifted := false
-	if policy != nil {
-		if uint64(cr.Spec.MaxPasswordAttempts) != policy.GetMaxPasswordAttempts() {
-			drifted = true
-		}
-		if uint64(cr.Spec.MaxOtpAttempts) != policy.GetMaxOtpAttempts() {
-			drifted = true
-		}
-	} else {
-		drifted = true
-	}
-
-	if drifted {
+	if r.hasDrift(&cr.Spec, policy) {
 		_, err := r.Zitadel.Admin().UpdateLockoutPolicy(ctx, &admin.UpdateLockoutPolicyRequest{
 			MaxPasswordAttempts: cr.Spec.MaxPasswordAttempts,
 			MaxOtpAttempts:      cr.Spec.MaxOtpAttempts,
@@ -122,6 +106,20 @@ func (r *DefaultLockoutPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 
 	logger.Info("defaultlockoutpolicy reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// hasDrift checks if the current lockout policy differs from the desired spec.
+func (r *DefaultLockoutPolicyReconciler) hasDrift(spec *zitadelv1alpha2.DefaultLockoutPolicySpec, policy *policyv1.LockoutPolicy) bool {
+	if policy == nil {
+		return true
+	}
+	if uint64(spec.MaxPasswordAttempts) != policy.GetMaxPasswordAttempts() {
+		return true
+	}
+	if uint64(spec.MaxOtpAttempts) != policy.GetMaxOtpAttempts() {
+		return true
+	}
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.

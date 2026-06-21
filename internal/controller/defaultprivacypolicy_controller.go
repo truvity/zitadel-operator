@@ -14,6 +14,7 @@ import (
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
+	policyv1 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 )
 
 // DefaultPrivacyPolicyReconciler reconciles a DefaultPrivacyPolicy object.
@@ -39,18 +40,13 @@ func (r *DefaultPrivacyPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 	if err := r.List(ctx, &list); err != nil {
 		return ctrl.Result{}, err
 	}
+	candidates := make([]singletonCandidate, len(list.Items))
 	for i := range list.Items {
-		other := &list.Items[i]
-		if other.UID == cr.UID {
-			continue
-		}
-		if other.CreationTimestamp.Before(&cr.CreationTimestamp) && other.DeletionTimestamp.IsZero() {
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
-				fmt.Sprintf("another DefaultPrivacyPolicy %s/%s (created earlier) is already managing this instance singleton", other.Namespace, other.Name))
-			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, &cr)
-			return ctrl.Result{RequeueAfter: requeueInterval}, nil
-		}
+		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
+	}
+	if checkSingletonConflict(&cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultPrivacyPolicy") {
+		_ = r.Status().Update(ctx, &cr)
+		return ctrl.Result{RequeueAfter: requeueInterval}, nil
 	}
 
 	// Handle deletion.
@@ -91,34 +87,7 @@ func (r *DefaultPrivacyPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 
 	// Detect drift and update if needed.
 	policy := current.GetPolicy()
-	drifted := false
-	if policy != nil {
-		if cr.Spec.TosLink != policy.GetTosLink() {
-			drifted = true
-		}
-		if cr.Spec.PrivacyLink != policy.GetPrivacyLink() {
-			drifted = true
-		}
-		if cr.Spec.HelpLink != policy.GetHelpLink() {
-			drifted = true
-		}
-		if cr.Spec.SupportEmail != policy.GetSupportEmail() {
-			drifted = true
-		}
-		if cr.Spec.DocsLink != policy.GetDocsLink() {
-			drifted = true
-		}
-		if cr.Spec.CustomLink != policy.GetCustomLink() {
-			drifted = true
-		}
-		if cr.Spec.CustomLinkText != policy.GetCustomLinkText() {
-			drifted = true
-		}
-	} else {
-		drifted = true
-	}
-
-	if drifted {
+	if r.hasDrift(&cr.Spec, policy) {
 		_, err := r.Zitadel.Admin().UpdatePrivacyPolicy(ctx, &admin.UpdatePrivacyPolicyRequest{
 			TosLink:        cr.Spec.TosLink,
 			PrivacyLink:    cr.Spec.PrivacyLink,
@@ -147,6 +116,35 @@ func (r *DefaultPrivacyPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 
 	logger.Info("defaultprivacypolicy reconciled")
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// hasDrift checks if the current privacy policy differs from the desired spec.
+func (r *DefaultPrivacyPolicyReconciler) hasDrift(spec *zitadelv1alpha2.DefaultPrivacyPolicySpec, policy *policyv1.PrivacyPolicy) bool {
+	if policy == nil {
+		return true
+	}
+	if spec.TosLink != policy.GetTosLink() {
+		return true
+	}
+	if spec.PrivacyLink != policy.GetPrivacyLink() {
+		return true
+	}
+	if spec.HelpLink != policy.GetHelpLink() {
+		return true
+	}
+	if spec.SupportEmail != policy.GetSupportEmail() {
+		return true
+	}
+	if spec.DocsLink != policy.GetDocsLink() {
+		return true
+	}
+	if spec.CustomLink != policy.GetCustomLink() {
+		return true
+	}
+	if spec.CustomLinkText != policy.GetCustomLinkText() {
+		return true
+	}
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.
