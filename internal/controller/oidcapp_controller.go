@@ -157,7 +157,7 @@ func (r *OIDCAppReconciler) findAppByName(ctx context.Context, projectID, appNam
 	return "", nil
 }
 
-func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string, cr *zitadelv1alpha2.OIDCApp) (clientID, clientSecret, appID string, err error) {
+func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string, cr *zitadelv1alpha2.OIDCApp) (appID, clientID, clientSecret string, err error) {
 	appType := applicationv2.OIDCApplicationType_OIDC_APP_TYPE_WEB
 	authMethod := applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC
 	if cr.Spec.AuthMethod == "none" {
@@ -202,7 +202,7 @@ func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string,
 		}
 	}
 
-	return clientID, clientSecret, appID, nil
+	return appID, clientID, clientSecret, nil
 }
 
 func (r *OIDCAppReconciler) getClientIDFromApp(app *applicationv2.Application) string {
