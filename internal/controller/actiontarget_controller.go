@@ -123,16 +123,15 @@ func (r *ActionTargetReconciler) ensureTarget(ctx context.Context, cr *zitadelv1
 	// Create new target.
 	timeout := parseDuration(cr.Spec.Timeout, 10*time.Second)
 
-	createResp, err := r.Zitadel.Action().CreateTarget(ctx, &actionv2.CreateTargetRequest{
-		Name: displayName,
-		TargetType: &actionv2.CreateTargetRequest_RestCall{
-			RestCall: &actionv2.RESTCall{
-				InterruptOnError: cr.Spec.InterruptOnError,
-			},
-		},
-		Timeout:  durationpb.New(timeout),
-		Endpoint: cr.Spec.Endpoint,
-	})
+	createReq := &actionv2.CreateTargetRequest{
+		Name:        displayName,
+		Timeout:     durationpb.New(timeout),
+		Endpoint:    cr.Spec.Endpoint,
+		PayloadType: mapPayloadType(cr.Spec.PayloadType),
+	}
+	setCreateTargetType(createReq, cr)
+
+	createResp, err := r.Zitadel.Action().CreateTarget(ctx, createReq)
 	if err != nil {
 		return "", fmt.Errorf("creating target: %w", err)
 	}
@@ -143,21 +142,76 @@ func (r *ActionTargetReconciler) ensureTarget(ctx context.Context, cr *zitadelv1
 func (r *ActionTargetReconciler) updateTarget(ctx context.Context, targetID string, cr *zitadelv1alpha2.ActionTarget) error {
 	timeout := parseDuration(cr.Spec.Timeout, 10*time.Second)
 
-	_, err := r.Zitadel.Action().UpdateTarget(ctx, &actionv2.UpdateTargetRequest{
-		Id:   targetID,
-		Name: strPtr(cr.DisplayName()),
-		TargetType: &actionv2.UpdateTargetRequest_RestCall{
-			RestCall: &actionv2.RESTCall{
-				InterruptOnError: cr.Spec.InterruptOnError,
-			},
-		},
-		Timeout:  durationpb.New(timeout),
-		Endpoint: strPtr(cr.Spec.Endpoint),
-	})
+	updateReq := &actionv2.UpdateTargetRequest{
+		Id:          targetID,
+		Name:        strPtr(cr.DisplayName()),
+		Timeout:     durationpb.New(timeout),
+		Endpoint:    strPtr(cr.Spec.Endpoint),
+		PayloadType: mapPayloadType(cr.Spec.PayloadType),
+	}
+	setUpdateTargetType(updateReq, cr)
+
+	_, err := r.Zitadel.Action().UpdateTarget(ctx, updateReq)
 	if err != nil {
 		return fmt.Errorf("updating target: %w", err)
 	}
 	return nil
+}
+
+// setCreateTargetType sets the target type oneof on a CreateTargetRequest based on the CRD spec.
+func setCreateTargetType(req *actionv2.CreateTargetRequest, cr *zitadelv1alpha2.ActionTarget) {
+	switch cr.Spec.TargetType {
+	case zitadelv1alpha2.ActionTargetTypeRestWebhook:
+		req.TargetType = &actionv2.CreateTargetRequest_RestWebhook{
+			RestWebhook: &actionv2.RESTWebhook{
+				InterruptOnError: cr.Spec.InterruptOnError,
+			},
+		}
+	case zitadelv1alpha2.ActionTargetTypeRestAsync:
+		req.TargetType = &actionv2.CreateTargetRequest_RestAsync{
+			RestAsync: &actionv2.RESTAsync{},
+		}
+	default: // restCall (default)
+		req.TargetType = &actionv2.CreateTargetRequest_RestCall{
+			RestCall: &actionv2.RESTCall{
+				InterruptOnError: cr.Spec.InterruptOnError,
+			},
+		}
+	}
+}
+
+// setUpdateTargetType sets the target type oneof on an UpdateTargetRequest based on the CRD spec.
+func setUpdateTargetType(req *actionv2.UpdateTargetRequest, cr *zitadelv1alpha2.ActionTarget) {
+	switch cr.Spec.TargetType {
+	case zitadelv1alpha2.ActionTargetTypeRestWebhook:
+		req.TargetType = &actionv2.UpdateTargetRequest_RestWebhook{
+			RestWebhook: &actionv2.RESTWebhook{
+				InterruptOnError: cr.Spec.InterruptOnError,
+			},
+		}
+	case zitadelv1alpha2.ActionTargetTypeRestAsync:
+		req.TargetType = &actionv2.UpdateTargetRequest_RestAsync{
+			RestAsync: &actionv2.RESTAsync{},
+		}
+	default: // restCall (default)
+		req.TargetType = &actionv2.UpdateTargetRequest_RestCall{
+			RestCall: &actionv2.RESTCall{
+				InterruptOnError: cr.Spec.InterruptOnError,
+			},
+		}
+	}
+}
+
+// mapPayloadType maps the CRD payloadType enum to the SDK's PayloadType enum.
+func mapPayloadType(pt zitadelv1alpha2.ActionTargetPayloadType) actionv2.PayloadType {
+	switch pt {
+	case zitadelv1alpha2.ActionTargetPayloadTypeJWT:
+		return actionv2.PayloadType_PAYLOAD_TYPE_JWT
+	case zitadelv1alpha2.ActionTargetPayloadTypeJWE:
+		return actionv2.PayloadType_PAYLOAD_TYPE_JWE
+	default: // json (default) or empty
+		return actionv2.PayloadType_PAYLOAD_TYPE_JSON
+	}
 }
 
 func parseDuration(s string, defaultVal time.Duration) time.Duration {

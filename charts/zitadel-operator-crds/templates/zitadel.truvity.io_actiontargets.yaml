@@ -61,6 +61,32 @@ spec:
                   Name is the display name of the target in Zitadel.
                   If empty, the Kubernetes resource name is used.
                 type: string
+              payloadType:
+                default: json
+                description: |-
+                  PayloadType defines how the payload is formatted and secured.
+                  - json: JSON body with X-ZITADEL-Signature header (default)
+                  - jwt: signed JWT body (receiver verifies via JWKS)
+                  - jwe: encrypted JWT body
+                  Default: json
+                enum:
+                - json
+                - jwt
+                - jwe
+                type: string
+              targetType:
+                default: restCall
+                description: |-
+                  TargetType defines the type of target and how Zitadel treats the response.
+                  - restCall: reads the response body (required for append_claims)
+                  - restWebhook: only checks status code, ignores body
+                  - restAsync: fire-and-forget, does not wait for response
+                  Default: restCall
+                enum:
+                - restCall
+                - restWebhook
+                - restAsync
+                type: string
               timeout:
                 description: Timeout is the request timeout duration (e.g., "10s",
                   "30s").

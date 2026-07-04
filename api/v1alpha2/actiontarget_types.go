@@ -4,6 +4,40 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ActionTargetType defines the type of target and how the response is treated.
+// +kubebuilder:validation:Enum=restCall;restWebhook;restAsync
+type ActionTargetType string
+
+const (
+	// ActionTargetTypeRestCall makes a POST request and reads the response body.
+	// This is required when Zitadel needs to read the response (e.g., append_claims).
+	ActionTargetTypeRestCall ActionTargetType = "restCall"
+
+	// ActionTargetTypeRestWebhook makes a POST request but ignores the response body.
+	// Only the status code is checked.
+	ActionTargetTypeRestWebhook ActionTargetType = "restWebhook"
+
+	// ActionTargetTypeRestAsync makes an asynchronous POST request.
+	// Zitadel does not wait for the response. Typically used for event executions.
+	ActionTargetTypeRestAsync ActionTargetType = "restAsync"
+)
+
+// ActionTargetPayloadType defines how the payload is formatted and secured.
+// +kubebuilder:validation:Enum=json;jwt;jwe
+type ActionTargetPayloadType string
+
+const (
+	// ActionTargetPayloadTypeJSON sends the payload as JSON with X-ZITADEL-Signature header.
+	ActionTargetPayloadTypeJSON ActionTargetPayloadType = "json"
+
+	// ActionTargetPayloadTypeJWT sends the payload as a signed JWT.
+	// The receiver can verify authenticity and integrity using the signing key.
+	ActionTargetPayloadTypeJWT ActionTargetPayloadType = "jwt"
+
+	// ActionTargetPayloadTypeJWE sends the payload as an encrypted JWT.
+	ActionTargetPayloadTypeJWE ActionTargetPayloadType = "jwe"
+)
+
 // ActionTargetSpec defines the desired state of ActionTarget.
 type ActionTargetSpec struct {
 	// Name is the display name of the target in Zitadel.
@@ -21,6 +55,24 @@ type ActionTargetSpec struct {
 	// InterruptOnError determines whether the action flow stops if this target fails.
 	// +optional
 	InterruptOnError bool `json:"interruptOnError,omitempty"`
+
+	// TargetType defines the type of target and how Zitadel treats the response.
+	// - restCall: reads the response body (required for append_claims)
+	// - restWebhook: only checks status code, ignores body
+	// - restAsync: fire-and-forget, does not wait for response
+	// Default: restCall
+	// +optional
+	// +kubebuilder:default=restCall
+	TargetType ActionTargetType `json:"targetType,omitempty"`
+
+	// PayloadType defines how the payload is formatted and secured.
+	// - json: JSON body with X-ZITADEL-Signature header (default)
+	// - jwt: signed JWT body (receiver verifies via JWKS)
+	// - jwe: encrypted JWT body
+	// Default: json
+	// +optional
+	// +kubebuilder:default=json
+	PayloadType ActionTargetPayloadType `json:"payloadType,omitempty"`
 }
 
 // ActionTargetStatus defines the observed state of ActionTarget.

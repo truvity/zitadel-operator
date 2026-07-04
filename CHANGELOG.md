@@ -2,6 +2,39 @@
 
 All notable changes to the zitadel-operator are documented here.
 
+## [0.15.0] — 2026-07-04
+
+### Added
+
+#### ActionTarget: `targetType` and `payloadType` fields
+
+The ActionTarget CRD now exposes full Actions V2 target configuration, making webhook setup fully declarative and survivable across cluster rebuilds without manual intervention.
+
+- **`targetType`** — enum: `restCall` (default), `restWebhook`, `restAsync`
+  - `restCall`: Zitadel reads the response body (required for `append_claims`)
+  - `restWebhook`: only checks status code, ignores response body
+  - `restAsync`: fire-and-forget, no response wait (for event executions)
+- **`payloadType`** — enum: `json` (default), `jwt`, `jwe`
+  - `json`: JSON body with `X-ZITADEL-Signature` header
+  - `jwt`: signed JWT body (receiver verifies via JWKS)
+  - `jwe`: encrypted JWT body
+
+Both fields have kubebuilder defaults — existing CRs without these fields continue working unchanged (backward-compatible).
+
+### Changed
+
+- ActionTarget controller now passes `targetType` and `payloadType` on both create and update, ensuring reconciliation always enforces the declared state
+- Integration tests updated to exercise `targetType: restCall` + `payloadType: jwt` with `function: preuserinfo` condition (validates the RBAC mapper webhook scenario end-to-end)
+
+### Fixed
+
+- Previously, the controller hardcoded `restCall` target type with no `payloadType` (defaulting to JSON). After a cluster rebuild, manually-configured JWT payload type was lost, breaking JWKS verification on the webhook handler. Now the operator fully manages these fields.
+
+## [0.14.0] — 2026-06-27
+
+### Fixed
+- `createOIDCApp` — corrected return order (was swapping appID/clientID/secret)
+
 ## [0.13.0] — 2026-06-21
 
 ### Added

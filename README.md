@@ -249,6 +249,58 @@ spec:
   # ...
 ```
 
+### ActionTarget + ActionExecution (RBAC Webhook)
+
+Fully declarative Actions V2 configuration — survives cluster rebuilds without manual intervention:
+
+```yaml
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: ActionTarget
+metadata:
+  name: rbac-mapper
+  namespace: zitadel-operator
+spec:
+  endpoint: "https://rbac-mapper.example.com/webhook"
+  timeout: "30s"
+  interruptOnError: true
+  targetType: restCall       # restCall | restWebhook | restAsync (default: restCall)
+  payloadType: jwt           # json | jwt | jwe (default: json)
+---
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: ActionExecution
+metadata:
+  name: rbac-mapper-preuserinfo
+  namespace: zitadel-operator
+spec:
+  condition:
+    function: preuserinfo    # function | request | event (mutually exclusive)
+  targets:
+    - targetRef:
+        name: rbac-mapper
+---
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: ActionExecution
+metadata:
+  name: rbac-mapper-preaccesstoken
+  namespace: zitadel-operator
+spec:
+  condition:
+    function: preaccesstoken
+  targets:
+    - targetRef:
+        name: rbac-mapper
+```
+
+**Target types:**
+- `restCall` — reads response body (required for `append_claims` in function executions)
+- `restWebhook` — checks status code only, ignores response body
+- `restAsync` — fire-and-forget, does not wait for response (use for event executions)
+
+**Payload types:**
+- `json` — JSON body with `X-ZITADEL-Signature` header for integrity verification
+- `jwt` — signed JWT body (receiver verifies via Zitadel's JWKS endpoint)
+- `jwe` — encrypted JWT body (requires providing an encryption public key to Zitadel)
+
 ## Development
 
 ```bash

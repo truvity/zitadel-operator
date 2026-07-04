@@ -27,6 +27,8 @@ func TestActionTarget_Lifecycle(t *testing.T) {
 			Endpoint:         "https://httpbin.org/post",
 			Timeout:          "10s",
 			InterruptOnError: true,
+			TargetType:       zitadelv1alpha2.ActionTargetTypeRestCall,
+			PayloadType:      zitadelv1alpha2.ActionTargetPayloadTypeJWT,
 		},
 	}
 	if err := k8sClient.Create(ctx, target); err != nil {
@@ -60,8 +62,10 @@ func TestActionExecution_WithTargetRef(t *testing.T) {
 	target := &zitadelv1alpha2.ActionTarget{
 		ObjectMeta: metav1.ObjectMeta{Name: targetName, Namespace: "default"},
 		Spec: zitadelv1alpha2.ActionTargetSpec{
-			Endpoint: "https://httpbin.org/post",
-			Timeout:  "10s",
+			Endpoint:    "https://httpbin.org/post",
+			Timeout:     "10s",
+			TargetType:  zitadelv1alpha2.ActionTargetTypeRestCall,
+			PayloadType: zitadelv1alpha2.ActionTargetPayloadTypeJWT,
 		},
 	}
 	if err := k8sClient.Create(ctx, target); err != nil {
@@ -71,12 +75,12 @@ func TestActionExecution_WithTargetRef(t *testing.T) {
 	waitForReady(t, ctx, client.ObjectKeyFromObject(target), &reconciledTarget, 30*time.Second)
 	t.Logf("target ready: %s (id: %s)", targetName, reconciledTarget.Status.TargetId)
 
-	// Create ActionExecution referencing the target.
+	// Create ActionExecution referencing the target with function condition.
 	exec := &zitadelv1alpha2.ActionExecution{
 		ObjectMeta: metav1.ObjectMeta{Name: execName, Namespace: "default"},
 		Spec: zitadelv1alpha2.ActionExecutionSpec{
 			Condition: zitadelv1alpha2.ActionCondition{
-				Request: "/zitadel.session.v2.SessionService/SetSession",
+				Function: "preuserinfo",
 			},
 			Targets: []zitadelv1alpha2.ActionExecutionTarget{
 				{TargetRef: &zitadelv1alpha2.ResourceRef{Name: targetName}},
