@@ -129,7 +129,16 @@ func (r *OIDCAppReconciler) findOrCreateApp(ctx context.Context, projectID, disp
 	if err := r.updateOIDCAppIfNeeded(ctx, existingAppID, projectID, existingApp, cr); err != nil {
 		return "", "", "", err
 	}
-	return appID, clientID, "", nil
+	// Adoption path: the client secret of an existing app cannot be read back.
+	// Regenerate it unless the referenced Secret already holds one.
+	if cr.Spec.Type == "confidential" && cr.Spec.AuthMethod != "none" {
+		clientSecret, err = regenerateAdoptedClientSecret(ctx, r.Client, r.Zitadel.Application(),
+			cr.Namespace, cr.Spec.SecretRef.Name, clientSecretKey(cr), projectID, existingAppID)
+		if err != nil {
+			return "", "", "", err
+		}
+	}
+	return appID, clientID, clientSecret, nil
 }
 
 func (r *OIDCAppReconciler) findAppByName(ctx context.Context, projectID, appName string) (string, *applicationv2.Application) {

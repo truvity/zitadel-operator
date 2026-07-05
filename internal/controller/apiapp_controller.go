@@ -123,7 +123,16 @@ func (r *APIAppReconciler) findOrCreateApp(ctx context.Context, projectID, displ
 		return r.createAPIApp(ctx, projectID, cr)
 	}
 
-	return existingAppID, r.getClientIDFromApp(existingApp), "", nil
+	// Adoption path: the client secret of an existing app cannot be read back.
+	// Regenerate it unless the referenced Secret already holds one.
+	if cr.Spec.AuthMethod == "basic" {
+		clientSecret, err = regenerateAdoptedClientSecret(ctx, r.Client, r.Zitadel.Application(),
+			cr.Namespace, cr.Spec.SecretRef.Name, apiClientSecretKey(cr), projectID, existingAppID)
+		if err != nil {
+			return "", "", "", err
+		}
+	}
+	return existingAppID, r.getClientIDFromApp(existingApp), clientSecret, nil
 }
 
 func (r *APIAppReconciler) findAppByName(ctx context.Context, projectID, appName string) (string, *applicationv2.Application) {
@@ -151,7 +160,7 @@ func (r *APIAppReconciler) findAppByName(ctx context.Context, projectID, appName
 	return "", nil
 }
 
-func (r *APIAppReconciler) createAPIApp(ctx context.Context, projectID string, cr *zitadelv1alpha2.APIApp) (clientID, clientSecret, appID string, err error) {
+func (r *APIAppReconciler) createAPIApp(ctx context.Context, projectID string, cr *zitadelv1alpha2.APIApp) (appID, clientID, clientSecret string, err error) {
 	authMethod := applicationv2.APIAuthMethodType_API_AUTH_METHOD_TYPE_BASIC
 	if cr.Spec.AuthMethod == "private_key_jwt" {
 		authMethod = applicationv2.APIAuthMethodType_API_AUTH_METHOD_TYPE_PRIVATE_KEY_JWT
@@ -176,7 +185,7 @@ func (r *APIAppReconciler) createAPIApp(ctx context.Context, projectID string, c
 		clientSecret = apiResp.GetClientSecret()
 	}
 
-	return clientID, clientSecret, appID, nil
+	return appID, clientID, clientSecret, nil
 }
 
 func (r *APIAppReconciler) getClientIDFromApp(app *applicationv2.Application) string {

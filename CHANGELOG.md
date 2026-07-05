@@ -2,6 +2,25 @@
 
 All notable changes to the zitadel-operator are documented here.
 
+## [0.16.0] — 2026-07-05
+
+### Fixed
+
+#### OIDCApp/APIApp: regenerate client secret when adopting an existing application
+
+When an OIDCApp or APIApp CR adopts an existing Zitadel application by name (e.g. after an unclean cluster teardown left an orphaned app), the client secret cannot be read back from the Zitadel API. Previously the adoption path returned an empty secret, so the referenced Kubernetes Secret only ever got the `client_id` key — consumers (e.g. ArgoCD) then failed OIDC with `invalid_client "invalid secret"`.
+
+Now, on adoption of a confidential OIDCApp (`type: confidential`, `authMethod != none`) or a basic-auth APIApp (`authMethod: basic`):
+
+- If the referenced Secret already holds a non-empty client secret, it is preserved (no needless rotation)
+- If the client secret key is missing or empty, a fresh secret is generated via the Zitadel `GenerateClientSecret` API and written to the Secret
+
+Sibling controllers were audited for the same gap: ApplicationKey, MachineUser, and PersonalAccessToken already mint a fresh key/token when the referenced Secret lacks data, so no change was needed there.
+
+#### APIApp: corrected return order in `createAPIApp`
+
+`createAPIApp` returned `(clientID, clientSecret, appID)` while the caller expected `(appID, clientID, clientSecret)`, so a freshly created APIApp stored the client ID as application ID, the client secret as client ID, and the application ID as client secret (same class of bug fixed for OIDCApp in 0.14.0).
+
 ## [0.15.0] — 2026-07-04
 
 ### Added
