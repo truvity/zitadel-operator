@@ -12,13 +12,19 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-
       - uses: actions/create-github-app-token@v3
         id: token
         with:
           app-id: ${{ secrets.RENOVATE_APP_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
+      # Checkout with the app token: the default GITHUB_TOKEN is
+      # contents:read, so the git push in "Create PR if changes" gets 403
+      # (every weekly run failed this way; the app token was only used
+      # for gh pr create).
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          token: ${{ steps.token.outputs.token }}
 
       - uses: DeterminateSystems/determinate-nix-action@v3
 
