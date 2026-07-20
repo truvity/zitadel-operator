@@ -22,8 +22,11 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-${{ runner.os }}-
+          # devbox.lock in the key: the go-build cache holds artifacts
+          # linked against nix store paths — a toolchain bump with a stale
+          # restored cache yields "fork/exec ...: no such file" in go test.
+          key: go-${{ runner.os }}-${{ hashFiles('devbox.lock') }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-${{ hashFiles('devbox.lock') }}-
 
       - name: Install devbox
         run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
