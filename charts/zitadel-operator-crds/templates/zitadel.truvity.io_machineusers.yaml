@@ -126,12 +126,37 @@ spec:
                 required:
                 - name
                 type: object
+              projectId:
+                description: |-
+                  ProjectId references a pre-existing Zitadel project by raw ID as the
+                  role grant target. Only used with Roles.
+                  Mutually exclusive with ProjectRef.
+                type: string
+              projectRef:
+                description: |-
+                  ProjectRef references a Project CR whose project the role grant is
+                  created on (v0.19 fleet shape: declare the project in-namespace and
+                  grant roles on it without scope maps). Only used with Roles.
+                  Mutually exclusive with ProjectId.
+                properties:
+                  name:
+                    description: Name is the name of the referenced resource.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the referenced resource.
+                      If empty, defaults to the same namespace as the referencing resource.
+                    type: string
+                required:
+                - name
+                type: object
               roles:
                 description: |-
-                  Roles are project role grants for this machine user within the
-                  namespace's resolved scope (v0.18, INF-426). Requires a project scope
-                  (the grant is created on the scope's project); grants never widen
-                  beyond the resolved scope.
+                  Roles are project role grants for this machine user (v0.18, INF-426).
+                  The grant target is, in order of precedence: the project named by
+                  ProjectRef/ProjectId (v0.19), the namespace's resolved scope project
+                  (scope maps), or a previously recorded status.projectId. Grants never
+                  widen beyond the resolved scope when scope maps are active.
                 items:
                   type: string
                 type: array

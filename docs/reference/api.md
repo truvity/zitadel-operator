@@ -48,6 +48,7 @@ Package v1alpha2 contains API Schema definitions for the zitadel.truvity.io v1al
 - [ProjectGrant](#projectgrant)
 - [ProjectGrantMember](#projectgrantmember)
 - [ProjectMember](#projectmember)
+- [ProjectRole](#projectrole)
 - [SAMLApp](#samlapp)
 - [ScopeMap](#scopemap)
 - [SmsProvider](#smsprovider)
@@ -1789,7 +1790,9 @@ _Appears in:_
 | `name` _string_ | Name is the display name of the machine user.<br />If empty, the Kubernetes resource name is used. |  | Optional: \{\} <br /> |
 | `description` _string_ | Description is an optional description of the machine user. |  | Optional: \{\} <br /> |
 | `accessTokenType` _string_ | AccessTokenType specifies the access token format for this machine user. |  | Enum: [bearer jwt] <br />Optional: \{\} <br /> |
-| `roles` _string array_ | Roles are project role grants for this machine user within the<br />namespace's resolved scope (v0.18, INF-426). Requires a project scope<br />(the grant is created on the scope's project); grants never widen<br />beyond the resolved scope. |  | Optional: \{\} <br /> |
+| `roles` _string array_ | Roles are project role grants for this machine user (v0.18, INF-426).<br />The grant target is, in order of precedence: the project named by<br />ProjectRef/ProjectId (v0.19), the namespace's resolved scope project<br />(scope maps), or a previously recorded status.projectId. Grants never<br />widen beyond the resolved scope when scope maps are active. |  | Optional: \{\} <br /> |
+| `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR whose project the role grant is<br />created on (v0.19 fleet shape: declare the project in-namespace and<br />grant roles on it without scope maps). Only used with Roles.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
+| `projectId` _string_ | ProjectId references a pre-existing Zitadel project by raw ID as the<br />role grant target. Only used with Roles.<br />Mutually exclusive with ProjectRef. |  | Optional: \{\} <br /> |
 | `key` _[MachineKeySpec](#machinekeyspec)_ | Key configures machine key lifecycle (v0.18, INF-426). |  | Optional: \{\} <br /> |
 | `keySecretRef` _[MachineKeySecretRef](#machinekeysecretref)_ | KeySecretRef references the Secret where the generated key JSON will be stored. |  |  |
 
@@ -2754,6 +2757,67 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represent the latest available observations of the resource's state. |  |  |
 
 
+#### ProjectRole
+
+
+
+ProjectRole is the Schema for the projectroles API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `zitadel.truvity.io/v1alpha2` | | |
+| `kind` _string_ | `ProjectRole` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[ProjectRoleSpec](#projectrolespec)_ |  |  |  |
+| `status` _[ProjectRoleStatus](#projectrolestatus)_ |  |  |  |
+
+
+#### ProjectRoleSpec
+
+
+
+ProjectRoleSpec defines the desired state of ProjectRole.
+
+
+
+_Appears in:_
+- [ProjectRole](#projectrole)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR in the same namespace (or another<br />namespace via ref.namespace). The role is created in that project once<br />it reports a projectId in status.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
+| `projectId` _string_ | ProjectId references a pre-existing Zitadel project by raw ID.<br />Mutually exclusive with ProjectRef. |  | Optional: \{\} <br /> |
+| `key` _string_ | Key is the role key used in authorization checks and token claims.<br />If empty, the Kubernetes resource name is used. The key cannot be<br />changed in Zitadel; changing it here removes the old role (including<br />its grants) and creates a new one. |  | Optional: \{\} <br /> |
+| `displayName` _string_ | DisplayName is the human-readable name of the role.<br />If empty, the role key is used. |  | Optional: \{\} <br /> |
+| `group` _string_ | Group optionally groups roles for display purposes (not a collection<br />of users; Zitadel does not evaluate it). |  | Optional: \{\} <br /> |
+
+
+#### ProjectRoleStatus
+
+
+
+ProjectRoleStatus defines the observed state of ProjectRole.
+
+
+
+_Appears in:_
+- [ProjectRole](#projectrole)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `projectId` _string_ | ProjectId is the resolved Zitadel project ID the role belongs to. |  |  |
+| `key` _string_ | Key is the role key currently reconciled into the project. Kept so a<br />key change can remove the previously managed role. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration is the spec generation last reconciled. |  |  |
+| `ready` _boolean_ | Ready indicates whether the ProjectRole is successfully synced. |  |  |
+| `lastSyncTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | LastSyncTime is the last time the resource was synced with Zitadel. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represent the latest available observations of the resource's state. |  |  |
+
+
 #### ProjectSpec
 
 
@@ -2773,7 +2837,7 @@ _Appears in:_
 | `name` _string_ | Name is the display name of the project in Zitadel.<br />If empty, the Kubernetes resource name is used. |  | Optional: \{\} <br /> |
 | `assertRolesOnAuth` _boolean_ | AssertRolesOnAuth determines whether roles are asserted on authentication. |  | Optional: \{\} <br /> |
 | `checkAuthorizationOnAuth` _boolean_ | CheckAuthorizationOnAuth enables authorization check on authentication.<br />When true, only users with explicit role assignments can authenticate,<br />and user grants are loaded into the Action context (ctx.v1.user.grants). |  | Optional: \{\} <br /> |
-| `roles` _string array_ | Roles is the list of roles defined for this project. |  | Optional: \{\} <br /> |
+| `roles` _string array_ | Roles is the authoritative full set of role keys for this project:<br />missing roles are added and extra roles are removed on every sync.<br />Prefer ProjectRole CRs (v0.19) for incremental, per-role management —<br />do not combine spec.roles with ProjectRole CRs targeting the same<br />project, or the full-set sync will remove the roles they manage. |  | Optional: \{\} <br /> |
 
 
 #### ProjectStatus
@@ -2791,6 +2855,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `projectId` _string_ | ProjectId is the Zitadel project ID. |  |  |
 | `organizationId` _string_ | OrganizationId is the resolved organization ID this project belongs to. |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration is the spec generation last reconciled. |  |  |
 | `ready` _boolean_ | Ready indicates whether the Project is successfully synced. |  |  |
 | `lastSyncTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | LastSyncTime is the last time the resource was synced with Zitadel. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represent the latest available observations of the resource's state. |  |  |
@@ -2830,6 +2895,7 @@ _Appears in:_
 - [ProjectGrantMemberSpec](#projectgrantmemberspec)
 - [ProjectGrantSpec](#projectgrantspec)
 - [ProjectMemberSpec](#projectmemberspec)
+- [ProjectRoleSpec](#projectrolespec)
 - [ProjectSpec](#projectspec)
 - [SAMLAppSpec](#samlappspec)
 - [UserGrantSpec](#usergrantspec)
