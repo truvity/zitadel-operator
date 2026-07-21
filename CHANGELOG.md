@@ -2,7 +2,24 @@
 
 All notable changes to the zitadel-operator are documented here.
 
-## [Unreleased] — v0.18 (INF-422)
+## [Unreleased] — v0.19 "fleet simplification"
+
+A strictly **additive** minor release serving the fleet deployment shape — one org = one SA = one operator, no ScopeMaps — now documented as the recommended topology in [docs/install/deployment-shapes.md](docs/install/deployment-shapes.md). ScopeMaps, `iam-owner` bindings and delegation remain fully supported.
+
+### Added
+
+- **`ProjectRole` CRD.** One role key per CR, reconciled into a project named by `spec.projectRef` (a `Project` CR) or `spec.projectId` (raw ID, mutually exclusive — `InvalidSpec` fail-closed condition otherwise; project-scoped namespaces may omit both and inherit the scope project). `spec.key` defaults to the CR name, `displayName` defaults to the key, optional `group`. Create-or-adopt with `displayName`/`group` drift correction; a changed key replaces the old role (keys are immutable in Zitadel); deletion removes the role. Unlike `Project` `spec.roles` (an authoritative full-set sync), `ProjectRole` manages exactly its own key so several namespaces/charts can contribute roles to one project — the mechanical `{namespace}:{role}` vocabulary downstream. Do not combine both mechanisms for one project.
+- **`MachineUser` explicit grant target.** New optional `spec.projectRef`/`spec.projectId` (mutually exclusive) name the project `spec.roles` is granted on — the fleet shape's replacement for the project-scope requirement. Precedence: explicit ref/ID → scope project → previously recorded `status.projectId`. Polite `ProjectNotReady` requeue while the referenced `Project` has no ID yet; a changed target drops the grant on the previous project. The `RolesRequireProjectScope` message now points at `projectRef`.
+- **ForeignManager guard.** Two operator deployments serving the *same* instance have identical SSA field managers, so the v0.18 dual-serving gate cannot tell them apart when their namespace selections accidentally overlap. Each tenant CR is now stamped at adoption with `zitadel.truvity.io/managed-by: <management identity>` (`<instance>/org/<boundOrgId>` for org-owner, `<instance>/ns/<operatorNamespace>` for iam-owner). A non-matching operator sets a `ForeignManager` condition (dedicated `zitadel-guard/<identity>` field manager — never touches the owner's status ownership) and skips the CR entirely, including deletion (a same-instance foreign delete is not a no-op). Transfer ownership by editing/removing the annotation; existing field-manager strings are unchanged, so v0.18-managed resources keep their ownership.
+- **`Project` settings applied and drift-corrected.** `spec.assertRolesOnAuth` and `spec.checkAuthorizationOnAuth` were declared but only honored at create time (and ignored on adoption); they are now applied at creation and drift-corrected on every sync via the project v2 API.
+- `status.observedGeneration` on `Project` and `ProjectRole`.
+
+### Documentation
+
+- New [Deployment shapes](docs/install/deployment-shapes.md): the fleet topology as the recommended shape, `spec.instance` pins vs the ForeignManager guard, in-namespace `Project`/`ProjectRole` declaration, with ScopeMaps/iam-owner documented as supported alternatives.
+- Regenerated CRD API reference; README/multi-operator pointers updated.
+
+## [0.18.0] — 2026-07-21 (INF-422)
 
 **BREAKING** — see [docs/MIGRATION-0.18.md](docs/MIGRATION-0.18.md) for the full v0.17 → v0.18 guide.
 

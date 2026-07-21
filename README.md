@@ -56,7 +56,7 @@ The operator creates the application in Zitadel and writes `client_id` + `client
 
 | Section | Contents |
 | --- | --- |
-| **Install** | [Helm installation](docs/install/helm.md) · [Configuration reference](docs/install/configuration.md) · [Binding levels: iam-owner vs org-owner](docs/install/binding-levels.md) |
+| **Install** | [Helm installation](docs/install/helm.md) · [Deployment shapes (recommended: the fleet)](docs/install/deployment-shapes.md) · [Configuration reference](docs/install/configuration.md) · [Binding levels: iam-owner vs org-owner](docs/install/binding-levels.md) |
 | **Operations** | [Multi-operator topologies](docs/operations/multi-operator.md) · [Scope-map administration & delegation](docs/operations/scope-maps.md) · [Dual-serving one namespace](docs/operations/dual-serving.md) · [Large multi-tenant installations](docs/operations/large-installations.md) · [Metrics](docs/operations/metrics.md) · [Troubleshooting](docs/operations/troubleshooting.md) |
 | **Architecture** | [Resource hierarchy & CRD map](docs/architecture/resource-hierarchy.md) · [Scope resolution](docs/architecture/scope-resolution.md) · [Internal delegation & credential lifecycle](docs/architecture/delegation.md) · [Dual-serving semantics](docs/architecture/dual-serving.md) · [Status conditions & SSA](docs/architecture/status-and-ssa.md) |
 | **Reference** | [CRD API reference](docs/reference/api.md) (generated from the Go types) |

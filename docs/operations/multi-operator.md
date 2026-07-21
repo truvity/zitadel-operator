@@ -1,6 +1,6 @@
 # Multi-Operator Topologies
 
-One operator deployment = one Zitadel instance = one binding credential. To manage several instances — or to split responsibility for one instance — you deploy several operators. This guide covers when and how.
+One operator deployment = one Zitadel instance = one binding credential. To manage several instances — or to split responsibility for one instance — you deploy several operators. This guide covers when and how. For the recommended way to serve several *organizations* of one instance with per-org `org-owner` operators — the v0.19 fleet shape — see [Deployment shapes](../install/deployment-shapes.md).
 
 ## When you need multiple operators
 
@@ -91,7 +91,7 @@ Notes:
 - CRDs are cluster-scoped: one install, never per operator. Operators act independently on the shared definitions.
 - Rotating one operator's credential restarts only that operator.
 - Adding a namespace to an operator: label it (if selector-routed), add it to `watchNamespaces` **and** `rbac.namespaces`, upgrade the release, and ensure a scope-map rule covers it.
-- Two operators for **different instances** may deliberately share a namespace — that is [dual-serving](dual-serving.md), and CRs there need `spec.instance` pins. Two operators for the **same instance** must keep disjoint namespace sets.
+- Two operators for **different instances** may deliberately share a namespace — that is [dual-serving](dual-serving.md), and CRs there need `spec.instance` pins. Two operators for the **same instance** must keep disjoint namespace sets; since v0.19 an accidental overlap is contained by the [ForeignManager guard](../install/deployment-shapes.md#same-instance-the-foreignmanager-guard-v019) (`zitadel.truvity.io/managed-by` annotation — the non-owning operator sets a `ForeignManager` condition and stays hands-off).
 
 ## Leader election with co-located deployments
 
