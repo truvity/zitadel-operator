@@ -21,6 +21,14 @@ zitadel-operator/<instance identity>   # instanceAlias, default: domain
 
 so each operator deployment owns only the fields (and condition entries) it writes. Because `conditions` is a `listType=map` keyed by `type`, two managers can each own their own condition entries on the same object without touching the other's.
 
+One additional manager exists since v0.19: the [ForeignManager guard](../install/deployment-shapes.md#same-instance-the-foreignmanager-guard-v019) writes its `ForeignManager` condition as
+
+```
+zitadel-guard/<management identity>
+```
+
+— deliberately **not** prefixed `zitadel-operator`, so the dual-serving `managedFields` scan never mistakes a guard write for a second serving operator, and the guard's minimal one-condition patch never claims fields the owning operator wrote. Two operators of the *same* instance share the `zitadel-operator/<instance>` manager; distinguishing them is the guard's job, keyed on the `zitadel.truvity.io/managed-by` annotation rather than on field managers.
+
 ### Why (the condition-wipe bug)
 
 The pre-v0.18 model — read-modify-write `Status().Update()` — was proven to **silently wipe conditions**: a full-object update refreshes the object from the server and drops in-memory condition edits made by anyone else (the prototype lost its own `ScopeResolved` condition to an intervening finalizer update; a foreign controller's condition would die the same way). That model cannot support two writers at all, and two-writer status is exactly what [dual-serving](dual-serving.md) requires. SSA landed as the first commit of the v0.18 batch, before any feature work, and the regression is pinned by integration scenario S-210 (`TestSSA_ForeignManagerConditionSurvives`): a foreign field manager's condition survives the operator's own writes.

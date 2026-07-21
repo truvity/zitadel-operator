@@ -55,6 +55,12 @@ The pod crash-looping right after deploy is almost always deliberate fail-fast. 
 | `Assumed` (True) | Unpinned, no other operator detected | — |
 | `AmbiguousInstance` | Unpinned in a dual-served namespace; all operators stopped | Set `spec.instance`. See [Dual-serving](dual-serving.md) |
 
+### `ForeignManager` (tenant CRs, same-instance overlap — v0.19)
+
+| Reason | Meaning | Action |
+| --- | --- | --- |
+| `ManagedByOtherOperator` | The `zitadel.truvity.io/managed-by` annotation names another operator deployment of the same instance; this operator skips the CR entirely (including deletion) | Expected if two same-instance operators' namespace selections overlap — fix `watchNamespaces`/RBAC. To transfer ownership (e.g. the owner was decommissioned), edit or remove the annotation. See [Deployment shapes](../install/deployment-shapes.md#same-instance-the-foreignmanager-guard-v019) |
+
 ### Scope-map conditions (`ScopeMap`)
 
 | Condition / Reason | Meaning |
