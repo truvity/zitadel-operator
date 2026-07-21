@@ -51,7 +51,6 @@ rules:
       - samlapps
       - smsproviders
       - usergrants
-      - zitadelscopemaps
     verbs:
       - get
       - list
@@ -105,7 +104,6 @@ rules:
       - samlapps/status
       - smsproviders/status
       - usergrants/status
-      - zitadelscopemaps/status
     verbs:
       - get
       - update
@@ -157,6 +155,24 @@ rules:
       - usergrants/finalizers
     verbs:
       - update
+  # ScopeMaps are admin-owned routing config: the operator only reads them
+  # and reports status — it must never create, mutate or delete a map.
+  - apiGroups:
+      - zitadel.truvity.io
+    resources:
+      - scopemaps
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - zitadel.truvity.io
+    resources:
+      - scopemaps/status
+    verbs:
+      - get
+      - update
+      - patch
   - apiGroups:
       - ""
     resources:

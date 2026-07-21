@@ -101,7 +101,7 @@ func resolveOrganizationId(ctx context.Context, k8s client.Client, ref *zitadelv
 		return org.Status.OrganizationId, nil
 	}
 
-	return "", fmt.Errorf("no organization specified: set organizationRef or organizationId (v0.18 removed defaultOrganizationId; namespaces routed by a ZitadelScopeMap inherit the scope's organization)")
+	return "", fmt.Errorf("no organization specified: set organizationRef or organizationId (v0.18 removed defaultOrganizationId; namespaces routed by a ScopeMap inherit the scope's organization)")
 }
 
 // resolveProjectId resolves the project ID from either a ProjectRef or explicit ProjectId.

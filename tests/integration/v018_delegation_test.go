@@ -207,9 +207,9 @@ func TestDelegation_EagerRevoke_OnMapRemoval(t *testing.T) {
 	projectName := fmt.Sprintf("v018-revokeproj-%d", ts)
 	createNamespace(t, ctx, nsName, nil)
 
-	m := &zitadelv1alpha2.ZitadelScopeMap{
+	m := &zitadelv1alpha2.ScopeMap{
 		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("v018-map-revoke-%d", ts), Namespace: operatorNamespace},
-		Spec: zitadelv1alpha2.ZitadelScopeMapSpec{
+		Spec: zitadelv1alpha2.ScopeMapSpec{
 			Instance:       cfg.Domain,
 			Organization:   orgName,
 			OrganizationId: orgID,

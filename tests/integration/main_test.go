@@ -47,7 +47,7 @@ import (
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 )
 
-// operatorNamespace hosts ZitadelScopeMaps and delegation Secrets in the
+// operatorNamespace hosts ScopeMaps and delegation Secrets in the
 // v0.18 integration tests.
 const operatorNamespace = "zitadel-operator-system"
 
@@ -193,7 +193,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// v0.18 scope maps: resolver + delegation wired into all tenant
-	// reconcilers. With zero ZitadelScopeMaps present this is passthrough,
+	// reconcilers. With zero ScopeMaps present this is passthrough,
 	// so all pre-v0.18 tests behave unchanged.
 	cacheSynced := &atomic.Bool{}
 	if err := mgr.Add(manager.RunnableFunc(func(runCtx context.Context) error {
@@ -209,7 +209,7 @@ func TestMain(m *testing.M) {
 	scopeResolver = &scopemap.Resolver{
 		Reader:    mgr.GetClient(),
 		Namespace: operatorNamespace,
-		Instance:  cfg.Domain,
+		Instance:  cfg.InstanceIdentity(),
 		Synced:    cacheSynced.Load,
 		Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"),
 	}
@@ -230,16 +230,16 @@ func TestMain(m *testing.M) {
 		Resolver: scopeResolver,
 		Manager:  delegationMgr,
 	}
-	if err := (&controller.ZitadelScopeMapReconciler{
+	if err := (&controller.ScopeMapReconciler{
 		Client:    mgr.GetClient(),
 		Zitadel:   zitadelClient,
 		Config:    cfg,
-		Instance:  cfg.Domain,
+		Instance:  cfg.InstanceIdentity(),
 		Namespace: operatorNamespace,
-		Recorder:  mgr.GetEventRecorderFor("zitadelscopemap"),
+		Recorder:  mgr.GetEventRecorderFor("scopemap"),
 		GC:        delegationGC,
 	}).SetupWithManager(mgr); err != nil {
-		slog.Error("failed to setup ZitadelScopeMapReconciler", slog.Any("error", err))
+		slog.Error("failed to setup ScopeMapReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
@@ -706,6 +706,19 @@ func TestMain(m *testing.M) {
 
 	// Run tests.
 	code := m.Run()
+
+	// Test-instance hygiene: sweep leaked test resources ONLY after a fully
+	// successful run. On any failure everything is preserved for debugging
+	// (rerun with V018_HYGIENE=1 or a green run to clean up afterwards).
+	if code == 0 {
+		if summary, err := sweepStaleTestResources(ctx); err != nil {
+			slog.Warn("post-run hygiene sweep had failures", slog.String("summary", summary), slog.Any("error", err))
+		} else {
+			slog.Info("post-run hygiene sweep", slog.String("summary", summary))
+		}
+	} else {
+		slog.Info("suite failed: skipping hygiene sweep, test resources preserved for debugging")
+	}
 
 	// Cleanup.
 	mgrCancel()

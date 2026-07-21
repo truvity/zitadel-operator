@@ -18,11 +18,13 @@ import (
 
 // fieldManagerFor returns the SSA field manager identity for status writes.
 // Each operator process owns its own status fields via a per-instance manager
-// (zitadel-operator/<domain>), enabling two operators to co-write status on
-// dual-served CRs without wiping each other's conditions.
+// (zitadel-operator/<instance identity>), enabling two operators to co-write
+// status on dual-served CRs without wiping each other's conditions. The
+// identity is the config's instanceAlias (falling back to the domain) so a
+// domain migration does not change field ownership.
 func fieldManagerFor(cfg *config.Config) string {
-	if cfg != nil && cfg.Domain != "" {
-		return "zitadel-operator/" + cfg.Domain
+	if cfg != nil && cfg.InstanceIdentity() != "" {
+		return "zitadel-operator/" + cfg.InstanceIdentity()
 	}
 	return "zitadel-operator"
 }

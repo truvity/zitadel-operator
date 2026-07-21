@@ -6,11 +6,12 @@ import (
 
 // OIDCAppSpec defines the desired state of OIDCApp.
 type OIDCAppSpec struct {
-	// Instance optionally pins this resource to a specific Zitadel instance
-	// domain (v0.18 dual-serving). When set to a domain other than this
-	// operator's binding, the CR is ignored entirely so the owning operator
-	// can manage it. When empty while the namespace is served by two
-	// operators, both fail closed with an AmbiguousInstance condition.
+	// Instance optionally pins this resource to one operator's instance
+	// identity — the operator config's instanceAlias, defaulting to its
+	// domain (v0.18 dual-serving). When set to another identity, the CR is
+	// ignored entirely so the owning operator can manage it. When empty
+	// while the namespace is served by two operators, both fail closed with
+	// an AmbiguousInstance condition.
 	// +optional
 	Instance string `json:"instance,omitempty"`
 
@@ -37,23 +38,29 @@ type OIDCAppSpec struct {
 	// +kubebuilder:validation:Enum=basic;none
 	AuthMethod string `json:"authMethod"`
 
-	// RedirectUris is the list of allowed redirect URIs.
+	// RedirectUris is the exact, ordered list of allowed OAuth2/OIDC redirect
+	// URIs. The operator is the single writer: server-side drift (added or
+	// removed entries) is reverted to this list on every reconcile. Zitadel
+	// requires https:// URIs unless the app has dev mode enabled.
 	RedirectUris []string `json:"redirectUris"`
 
-	// PostLogoutRedirectUris is the list of allowed post-logout redirect URIs.
+	// PostLogoutRedirectUris is the list of allowed URIs to return users to
+	// after logout (RP-initiated logout). Drift-corrected like RedirectUris.
 	// +optional
 	PostLogoutRedirectUris []string `json:"postLogoutRedirectUris,omitempty"`
 
-	// AccessTokenType specifies the access token format.
+	// AccessTokenType selects the access token format: "bearer" (opaque,
+	// default) or "jwt" (self-contained, locally verifiable).
 	// +kubebuilder:validation:Enum=bearer;jwt
 	// +optional
 	AccessTokenType string `json:"accessTokenType,omitempty"`
 
-	// AccessTokenRoleAssertion determines whether roles are included in the access token.
+	// AccessTokenRoleAssertion includes the user's project role claims in
+	// the access token.
 	// +optional
 	AccessTokenRoleAssertion bool `json:"accessTokenRoleAssertion,omitempty"`
 
-	// IdTokenRoleAssertion determines whether roles are included in the ID token.
+	// IdTokenRoleAssertion includes the user's project role claims in the ID token.
 	// +optional
 	IdTokenRoleAssertion bool `json:"idTokenRoleAssertion,omitempty"`
 

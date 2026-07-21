@@ -9,6 +9,9 @@ data:
   config.yaml: |
     domain: {{ .Values.config.domain | quote }}
     binding: {{ required "config.binding is required (iam-owner or org-owner)" .Values.config.binding | quote }}
+    {{- if .Values.config.instanceAlias }}
+    instanceAlias: {{ .Values.config.instanceAlias | quote }}
+    {{- end }}
     port: {{ .Values.config.port | quote }}
     insecure: {{ .Values.config.insecure }}
     {{- if .Values.config.externalDomain }}

@@ -31,6 +31,9 @@ spec:
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect=true
             {{- else }}
+            {{- if not .Values.leaderElection.acknowledgeDisabledRisk }}
+            {{- fail "leaderElection.enabled=false risks split-brain (double-minted delegates, racing Secret writes during rolling updates); set leaderElection.acknowledgeDisabledRisk=true to confirm" }}
+            {{- end }}
             - --leader-elect=false
             {{- end }}
             - --leader-election-id={{ include "zitadel-operator.fullname" . }}

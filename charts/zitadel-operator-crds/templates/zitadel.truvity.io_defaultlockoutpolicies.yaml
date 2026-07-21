@@ -46,9 +46,15 @@ spec:
             description: DefaultLockoutPolicySpec defines the desired state of DefaultLockoutPolicy.
             properties:
               maxOtpAttempts:
+                description: |-
+                  MaxOtpAttempts is the number of failed OTP attempts before the account
+                  is locked. 0 disables OTP lockout.
                 format: int32
                 type: integer
               maxPasswordAttempts:
+                description: |-
+                  MaxPasswordAttempts is the number of failed password attempts before
+                  the account is locked. 0 disables password lockout.
                 format: int32
                 type: integer
             required:

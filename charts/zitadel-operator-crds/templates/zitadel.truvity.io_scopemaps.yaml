@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
-  name: zitadelscopemaps.zitadel.truvity.io
+  name: scopemaps.zitadel.truvity.io
 spec:
   group: zitadel.truvity.io
   names:
-    kind: ZitadelScopeMap
-    listKind: ZitadelScopeMapList
-    plural: zitadelscopemaps
-    singular: zitadelscopemap
+    kind: ScopeMap
+    listKind: ScopeMapList
+    plural: scopemaps
+    singular: scopemap
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -28,7 +28,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          ZitadelScopeMap maps tenant namespaces to Zitadel org/project scopes.
+          ScopeMap maps tenant namespaces to Zitadel org/project scopes.
           Namespaced; only maps in the operator's own namespace are evaluated.
         properties:
           apiVersion:
@@ -49,22 +49,27 @@ spec:
           metadata:
             type: object
           spec:
-            description: ZitadelScopeMapSpec defines the desired state of ZitadelScopeMap.
+            description: ScopeMapSpec defines the desired state of ScopeMap.
             properties:
               instance:
                 description: |-
-                  Instance is the Zitadel instance domain this map applies to.
-                  Must match the operator's binding domain; otherwise the map is
-                  fail-closed with an InstanceMismatch condition.
+                  Instance is the operator instance identity this map applies to — the
+                  operator config's instanceAlias, defaulting to its domain. Must match
+                  the serving operator's identity; otherwise the map is fail-closed with
+                  an InstanceMismatch condition.
                 type: string
               organization:
-                description: Organization is the Zitadel organization name.
+                description: |-
+                  Organization is the Zitadel organization name. Required when
+                  OrganizationId is empty (the map controller resolves the name to an
+                  ID); optional and informational when OrganizationId is set.
                 type: string
               organizationId:
                 description: |-
                   OrganizationId pins the Zitadel organization by raw ID.
-                  When set, the ID is authoritative; a differing Organization name
-                  is reported as drift via an Event (not an error).
+                  When set, the ID is authoritative; a differing Organization name is
+                  reported as drift (OrganizationNameDrift condition + Event, not an
+                  error). At least one of Organization / OrganizationId must be set.
                 type: string
               rules:
                 description: |-
@@ -136,13 +141,17 @@ spec:
                       type: array
                     project:
                       description: |-
-                        Project is the Zitadel project name this rule scopes to.
-                        When empty, the rule grants org-scope.
+                        Project is the Zitadel project name this rule scopes to. The project
+                        is created on first use when it does not exist. When both Project and
+                        ProjectId are empty, the rule grants org-scope.
+                        Names are for humans, IDs for machines: when ProjectId is set it is
+                        authoritative and Project is informational.
                       type: string
                     projectId:
                       description: |-
-                        ProjectId pins the Zitadel project by raw ID.
-                        Only valid together with a literal Project name.
+                        ProjectId pins the Zitadel project by raw ID (authoritative when set;
+                        the project must already exist). May be used with or without a
+                        Project name.
                       type: string
                   required:
                   - name
@@ -151,11 +160,10 @@ spec:
                 type: array
             required:
             - instance
-            - organization
             - rules
             type: object
           status:
-            description: ZitadelScopeMapStatus defines the observed state of ZitadelScopeMap.
+            description: ScopeMapStatus defines the observed state of ScopeMap.
             properties:
               conditions:
                 description: Conditions represent the latest available observations

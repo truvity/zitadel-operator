@@ -81,18 +81,18 @@ func createNamespace(t *testing.T, ctx context.Context, name string, labels map[
 }
 
 // createScopeMap creates a map in the operator namespace and registers cleanup.
-func createScopeMap(t *testing.T, ctx context.Context, name string, spec zitadelv1alpha2.ZitadelScopeMapSpec) *zitadelv1alpha2.ZitadelScopeMap {
+func createScopeMap(t *testing.T, ctx context.Context, name string, spec zitadelv1alpha2.ScopeMapSpec) *zitadelv1alpha2.ScopeMap {
 	t.Helper()
-	m := &zitadelv1alpha2.ZitadelScopeMap{
+	m := &zitadelv1alpha2.ScopeMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: operatorNamespace},
 		Spec:       spec,
 	}
 	if err := k8sClient.Create(ctx, m); err != nil {
-		t.Fatalf("creating ZitadelScopeMap %s: %v", name, err)
+		t.Fatalf("creating ScopeMap %s: %v", name, err)
 	}
 	t.Cleanup(func() {
 		_ = k8sClient.Delete(context.Background(), m)
-		waitForDeletion(t, context.Background(), client.ObjectKeyFromObject(m), &zitadelv1alpha2.ZitadelScopeMap{}, 30*time.Second)
+		waitForDeletion(t, context.Background(), client.ObjectKeyFromObject(m), &zitadelv1alpha2.ScopeMap{}, 30*time.Second)
 	})
 	return m
 }
@@ -176,7 +176,7 @@ func TestScopeMap_SelectorRuleMatch(t *testing.T) {
 	projectName := fmt.Sprintf("v018-selproj-%d", ts)
 	createNamespace(t, ctx, nsName, map[string]string{"v018-scope": "alpha"})
 
-	createScopeMap(t, ctx, "v018-map-sel", zitadelv1alpha2.ZitadelScopeMapSpec{
+	createScopeMap(t, ctx, "v018-map-sel", zitadelv1alpha2.ScopeMapSpec{
 		Instance:       cfg.Domain,
 		Organization:   orgName,
 		OrganizationId: orgID,
@@ -248,7 +248,7 @@ func TestScopeMap_LiteralMatch_DelegatedActorProof(t *testing.T) {
 	projectName := fmt.Sprintf("v018-litproj-%d", ts)
 	createNamespace(t, ctx, nsName, nil)
 
-	createScopeMap(t, ctx, "v018-map-lit", zitadelv1alpha2.ZitadelScopeMapSpec{
+	createScopeMap(t, ctx, "v018-map-lit", zitadelv1alpha2.ScopeMapSpec{
 		Instance:       cfg.Domain,
 		Organization:   orgName,
 		OrganizationId: orgID,
@@ -362,7 +362,7 @@ func TestScopeMap_NoMatch_FailClosed(t *testing.T) {
 	nsName := fmt.Sprintf("v018-nomatch-%d", ts)
 	createNamespace(t, ctx, nsName, nil) // no labels, not listed anywhere
 
-	createScopeMap(t, ctx, "v018-map-nomatch", zitadelv1alpha2.ZitadelScopeMapSpec{
+	createScopeMap(t, ctx, "v018-map-nomatch", zitadelv1alpha2.ScopeMapSpec{
 		Instance:       cfg.Domain,
 		Organization:   orgName,
 		OrganizationId: orgID,
@@ -415,8 +415,8 @@ func TestScopeMap_CrossMapConflict(t *testing.T) {
 	nsName := fmt.Sprintf("v018-conflict-%d", ts)
 	createNamespace(t, ctx, nsName, nil)
 
-	spec := func(rule string) zitadelv1alpha2.ZitadelScopeMapSpec {
-		return zitadelv1alpha2.ZitadelScopeMapSpec{
+	spec := func(rule string) zitadelv1alpha2.ScopeMapSpec {
+		return zitadelv1alpha2.ScopeMapSpec{
 			Instance:       cfg.Domain,
 			Organization:   orgName,
 			OrganizationId: orgID,
@@ -483,7 +483,7 @@ func TestScopeMap_InstanceMismatch(t *testing.T) {
 	nsName := fmt.Sprintf("v018-mismatch-%d", ts)
 	createNamespace(t, ctx, nsName, nil)
 
-	m := createScopeMap(t, ctx, "v018-map-mismatch", zitadelv1alpha2.ZitadelScopeMapSpec{
+	m := createScopeMap(t, ctx, "v018-map-mismatch", zitadelv1alpha2.ScopeMapSpec{
 		Instance:       "wrong-instance.zitadel.example", // != operator binding
 		Organization:   orgName,
 		OrganizationId: orgID,
@@ -496,7 +496,7 @@ func TestScopeMap_InstanceMismatch(t *testing.T) {
 	// The map controller must mark the map fail-closed.
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		var cur zitadelv1alpha2.ZitadelScopeMap
+		var cur zitadelv1alpha2.ScopeMap
 		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(m), &cur); err == nil {
 			var matched bool
 			for _, c := range cur.Status.Conditions {

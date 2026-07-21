@@ -50,11 +50,14 @@ spec:
             description: OIDCAppSpec defines the desired state of OIDCApp.
             properties:
               accessTokenRoleAssertion:
-                description: AccessTokenRoleAssertion determines whether roles are
-                  included in the access token.
+                description: |-
+                  AccessTokenRoleAssertion includes the user's project role claims in
+                  the access token.
                 type: boolean
               accessTokenType:
-                description: AccessTokenType specifies the access token format.
+                description: |-
+                  AccessTokenType selects the access token format: "bearer" (opaque,
+                  default) or "jwt" (self-contained, locally verifiable).
                 enum:
                 - bearer
                 - jwt
@@ -66,16 +69,17 @@ spec:
                 - none
                 type: string
               idTokenRoleAssertion:
-                description: IdTokenRoleAssertion determines whether roles are included
-                  in the ID token.
+                description: IdTokenRoleAssertion includes the user's project role
+                  claims in the ID token.
                 type: boolean
               instance:
                 description: |-
-                  Instance optionally pins this resource to a specific Zitadel instance
-                  domain (v0.18 dual-serving). When set to a domain other than this
-                  operator's binding, the CR is ignored entirely so the owning operator
-                  can manage it. When empty while the namespace is served by two
-                  operators, both fail closed with an AmbiguousInstance condition.
+                  Instance optionally pins this resource to one operator's instance
+                  identity — the operator config's instanceAlias, defaulting to its
+                  domain (v0.18 dual-serving). When set to another identity, the CR is
+                  ignored entirely so the owning operator can manage it. When empty
+                  while the namespace is served by two operators, both fail closed with
+                  an AmbiguousInstance condition.
                 type: string
               name:
                 description: |-
@@ -83,8 +87,9 @@ spec:
                   If empty, the Kubernetes resource name is used.
                 type: string
               postLogoutRedirectUris:
-                description: PostLogoutRedirectUris is the list of allowed post-logout
-                  redirect URIs.
+                description: |-
+                  PostLogoutRedirectUris is the list of allowed URIs to return users to
+                  after logout (RP-initiated logout). Drift-corrected like RedirectUris.
                 items:
                   type: string
                 type: array
@@ -110,7 +115,11 @@ spec:
                 - name
                 type: object
               redirectUris:
-                description: RedirectUris is the list of allowed redirect URIs.
+                description: |-
+                  RedirectUris is the exact, ordered list of allowed OAuth2/OIDC redirect
+                  URIs. The operator is the single writer: server-side drift (added or
+                  removed entries) is reverted to this list on every reconcile. Zitadel
+                  requires https:// URIs unless the app has dev mode enabled.
                 items:
                   type: string
                 type: array
