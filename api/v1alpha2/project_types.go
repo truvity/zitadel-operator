@@ -40,7 +40,11 @@ type ProjectSpec struct {
 	// +optional
 	CheckAuthorizationOnAuth bool `json:"checkAuthorizationOnAuth,omitempty"`
 
-	// Roles is the list of roles defined for this project.
+	// Roles is the authoritative full set of role keys for this project:
+	// missing roles are added and extra roles are removed on every sync.
+	// Prefer ProjectRole CRs (v0.19) for incremental, per-role management —
+	// do not combine spec.roles with ProjectRole CRs targeting the same
+	// project, or the full-set sync will remove the roles they manage.
 	// +optional
 	Roles []string `json:"roles,omitempty"`
 }
@@ -52,6 +56,9 @@ type ProjectStatus struct {
 
 	// OrganizationId is the resolved organization ID this project belongs to.
 	OrganizationId string `json:"organizationId,omitempty"`
+
+	// ObservedGeneration is the spec generation last reconciled.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// Ready indicates whether the Project is successfully synced.
 	Ready bool `json:"ready,omitempty"`
