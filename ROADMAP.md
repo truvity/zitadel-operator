@@ -1,8 +1,12 @@
 # Zitadel Operator Roadmap
 
-## Current: v0.13.0 (v1alpha2)
+## Current: v0.18 (v1alpha2, unreleased) — see [CHANGELOG.md](CHANGELOG.md)
 
-### Implemented Resources (42 CRDs)
+v0.18 adds scope maps (`ZitadelScopeMap`), internal delegation, binding
+levels, dual-serving, and SSA status writes — documented under
+[docs/architecture/](docs/architecture/resource-hierarchy.md).
+
+### Implemented Resources (43 CRDs)
 
 #### Project-Level (PROJECT_OWNER)
 - OIDCApp — OIDC application with Secret output (confidential/public, drift detection)
@@ -63,9 +67,11 @@
 - Graceful retry for transient ref-not-ready errors (10s requeue)
 - Finalizer-based cleanup on deletion
 
-### Integration Tests (27 scenarios)
-All tests run against a real Zitadel Cloud instance via envtest.
-Includes negative cases, condition verification, idempotent reconcile, and edge cases.
+### Integration Tests
+100 test functions against a real Zitadel instance via envtest — negative
+cases, condition verification, idempotent reconcile, drift, delegation,
+dual-serving. Catalog: [docs/TEST-SCENARIOS.md](docs/TEST-SCENARIOS.md);
+harness: [docs/development/integration-tests.md](docs/development/integration-tests.md).
 
 ## Future
 

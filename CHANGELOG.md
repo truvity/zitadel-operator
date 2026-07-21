@@ -32,6 +32,12 @@ All notable changes to the zitadel-operator are documented here.
 - **INF-430 audit:** ApplicationKey re-mints (Secret lost) never persisted the new `status.keyId`, and PersonalAccessToken re-mints never persisted the new `status.tokenId` — deletion then revoked a stale ID and leaked the live credential. Both now persist the ID and revoke the replaced key/token at re-mint time. The OIDCApp/APIApp adoption-regeneration path (0.16.0) is covered by a dedicated integration test.
 - Singleton conflict detection now tie-breaks equal creation timestamps (1s granularity) by namespace/name, making the duplicate-singleton winner deterministic.
 
+### Documentation
+
+- Restructured into a Diátaxis-style tree: [install](docs/install/helm.md) (Helm, [configuration reference](docs/install/configuration.md), [binding levels](docs/install/binding-levels.md)), [operations](docs/operations/troubleshooting.md) (multi-operator, scope-map administration & RBAC delegation, dual-serving, large installations, troubleshooting), [architecture](docs/architecture/resource-hierarchy.md) (current-state only), and [development](docs/development/contributing.md).
+- **Generated CRD API reference** ([docs/reference/api.md](docs/reference/api.md)) via `crd-ref-docs`, wired into `just generate` and gated by `verify-generate`.
+- `docs/DESIGN.md` split: current-state content absorbed into `docs/architecture/`; decision history preserved as dated records in [docs/design/](docs/design/README.md). `docs/GUIDE-MULTI-INSTANCE.md` folded into `docs/operations/`.
+
 ## [0.16.0] — 2026-07-05
 
 ### Fixed
