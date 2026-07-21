@@ -42,12 +42,26 @@ type MachineUserSpec struct {
 	// +optional
 	AccessTokenType string `json:"accessTokenType,omitempty"`
 
-	// Roles are project role grants for this machine user within the
-	// namespace's resolved scope (v0.18, INF-426). Requires a project scope
-	// (the grant is created on the scope's project); grants never widen
-	// beyond the resolved scope.
+	// Roles are project role grants for this machine user (v0.18, INF-426).
+	// The grant target is, in order of precedence: the project named by
+	// ProjectRef/ProjectId (v0.19), the namespace's resolved scope project
+	// (scope maps), or a previously recorded status.projectId. Grants never
+	// widen beyond the resolved scope when scope maps are active.
 	// +optional
 	Roles []string `json:"roles,omitempty"`
+
+	// ProjectRef references a Project CR whose project the role grant is
+	// created on (v0.19 fleet shape: declare the project in-namespace and
+	// grant roles on it without scope maps). Only used with Roles.
+	// Mutually exclusive with ProjectId.
+	// +optional
+	ProjectRef *ResourceRef `json:"projectRef,omitempty"`
+
+	// ProjectId references a pre-existing Zitadel project by raw ID as the
+	// role grant target. Only used with Roles.
+	// Mutually exclusive with ProjectRef.
+	// +optional
+	ProjectId string `json:"projectId,omitempty"`
 
 	// Key configures machine key lifecycle (v0.18, INF-426).
 	// +optional
