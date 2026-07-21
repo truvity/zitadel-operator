@@ -60,6 +60,31 @@ spec:
                 description: Description is an optional description of the machine
                   user.
                 type: string
+              instance:
+                description: |-
+                  Instance optionally pins this resource to a specific Zitadel instance
+                  domain (v0.18 dual-serving). When set to a domain other than this
+                  operator's binding, the CR is ignored entirely so the owning operator
+                  can manage it. When empty while the namespace is served by two
+                  operators, both fail closed with an AmbiguousInstance condition.
+                type: string
+              key:
+                description: Key configures machine key lifecycle (v0.18, INF-426).
+                properties:
+                  rotateAfter:
+                    description: |-
+                      RotateAfter enables dual-key rotation: once the current key is older
+                      than this duration, a new key is minted and swapped into the Secret;
+                      the old key is revoked after RotationGrace (two keys coexist during
+                      the overlap). Example: "2160h" (90 days). Empty = never rotate
+                      (pre-v0.18 behavior).
+                    type: string
+                  rotationGrace:
+                    description: |-
+                      RotationGrace is how long the old key stays valid after rotation.
+                      Defaults to 5m.
+                    type: string
+                type: object
               keySecretRef:
                 description: KeySecretRef references the Secret where the generated
                   key JSON will be stored.
@@ -100,6 +125,15 @@ spec:
                 required:
                 - name
                 type: object
+              roles:
+                description: |-
+                  Roles are project role grants for this machine user within the
+                  namespace's resolved scope (v0.18, INF-426). Requires a project scope
+                  (the grant is created on the scope's project); grants never widen
+                  beyond the resolved scope.
+                items:
+                  type: string
+                type: array
               userName:
                 description: UserName is the login name for the machine user.
                 type: string
@@ -171,6 +205,17 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              grantId:
+                description: GrantId is the Zitadel user grant carrying spec.roles
+                  (v0.18).
+                type: string
+              keyCreatedAt:
+                description: KeyCreatedAt is when the current key was minted.
+                format: date-time
+                type: string
+              keyId:
+                description: KeyId is the current machine key (v0.18 rotation bookkeeping).
+                type: string
               lastSyncTime:
                 description: LastSyncTime is the last time the resource was synced
                   with Zitadel.
@@ -178,6 +223,18 @@ spec:
                 type: string
               organizationId:
                 description: OrganizationId is the resolved organization ID.
+                type: string
+              previousKeyId:
+                description: PreviousKeyId is the rotated-out key awaiting revocation.
+                type: string
+              previousKeyRevokeAt:
+                description: PreviousKeyRevokeAt is when the rotated-out key gets
+                  revoked.
+                format: date-time
+                type: string
+              projectId:
+                description: ProjectId is the scope project the roles are granted
+                  on (v0.18).
                 type: string
               ready:
                 description: Ready indicates whether the MachineUser is successfully
