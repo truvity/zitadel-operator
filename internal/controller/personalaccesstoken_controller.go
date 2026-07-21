@@ -95,14 +95,18 @@ func (r *PersonalAccessTokenReconciler) Reconcile(ctx context.Context, req ctrl.
 	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Ensure token exists and is stored in Secret.
+	prevStatusTokenID := cr.Status.TokenId
 	if err := r.ensureToken(ctx, &cr, userID); err != nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "TokenError", err.Error())
 		_ = applyStatus(ctx, r.Client, r.Config, &cr)
 		return ctrl.Result{}, err
 	}
 
-	// Status.
-	statusChanged := cr.Status.UserId != userID || cr.Status.OrganizationId != orgID
+	// Status. TokenId must participate in change detection (INF-430 audit):
+	// a re-minted token whose ID is never persisted leaves deletion revoking
+	// a stale token and leaking the live one.
+	statusChanged := cr.Status.UserId != userID || cr.Status.OrganizationId != orgID ||
+		cr.Status.TokenId != prevStatusTokenID
 	cr.Status.UserId = userID
 	cr.Status.OrganizationId = orgID
 	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
@@ -149,6 +153,18 @@ func (r *PersonalAccessTokenReconciler) ensureToken(ctx context.Context, cr *zit
 	expiration := time.Now().Add(365 * 10 * 24 * time.Hour) // 10 years
 	if cr.Spec.ExpirationDate != nil {
 		expiration = cr.Spec.ExpirationDate.Time
+	}
+
+	// Replacing a token whose Secret was lost: revoke the old one first so it
+	// does not linger past CR deletion (INF-430 audit).
+	if cr.Status.TokenId != "" {
+		_, rmErr := zclient(ctx, r.Zitadel).Management().RemovePersonalAccessToken(ctx, &management.RemovePersonalAccessTokenRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method
+			UserId:  userID,
+			TokenId: cr.Status.TokenId,
+		})
+		if rmErr != nil && status.Code(rmErr) != codes.NotFound {
+			return fmt.Errorf("revoking replaced personal access token: %w", rmErr)
+		}
 	}
 
 	// Create personal access token via Management API.
