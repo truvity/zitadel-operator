@@ -17,6 +17,8 @@ import (
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	applicationv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/application/v2"
@@ -27,6 +29,13 @@ type OIDCAppReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil.
+	// With maps present, reconciliation runs with a delegated per-scope
+	// client instead of the binding credential.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=oidcapps,verbs=get;list;watch;create;update;patch;delete
@@ -40,13 +49,30 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Project scope label enforcement.
+	// v0.18 dual-serving: an explicit spec.instance pin that names another
+	// Zitadel instance means this CR belongs to a different operator — do not
+	// touch it at all (no status writes, no finalizer).
+	if cr.Spec.Instance != "" && r.Config != nil && cr.Spec.Instance != r.Config.Domain {
+		return ctrl.Result{}, nil
+	}
+
+	// v0.18 scope maps: resolve the namespace scope and pick the client.
+	// Passthrough (binding client) when no maps exist; fail-closed otherwise.
+	deleting := !cr.DeletionTimestamp.IsZero()
+	rs, done, result, err := resolveScopeAndClient(
+		ctx, r.Client, r.Resolver, r.Delegation, r.Zitadel, &cr, &cr.Status.Conditions, req.Namespace, deleting)
+	if done {
+		return result, err
+	}
+	zc := rs.zc
+
+	// Project scope label enforcement (legacy v0.17 mechanism).
 	if done, result, err := checkProjectScope(ctx, r.Client, r.Config, req.Namespace, &cr, &cr.Status.Conditions); done {
 		return result, err
 	}
 
 	// Resolve project ID (and inherited org ID).
-	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
+	projectID, inheritedOrgID, err := r.resolveAppProject(ctx, &cr, rs)
 	if err != nil {
 		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
@@ -55,29 +81,21 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Handle deletion.
-	if done, result, err := handleDeletionStrict(ctx, r.Client, &cr, func() error {
-		if cr.Status.ApplicationId != "" {
-			_, err := r.Zitadel.Application().DeleteApplication(ctx, &applicationv2.DeleteApplicationRequest{
-				ApplicationId: cr.Status.ApplicationId,
-				ProjectId:     projectID,
-			})
-			if err != nil && status.Code(err) != codes.NotFound {
-				return fmt.Errorf("deleting application: %w", err)
-			}
-		}
-		return nil
-	}); done {
+	if done, result, err := handleDeletionStrict(ctx, r.Client, &cr, r.deleteAppFunc(ctx, zc, &cr, projectID)); done {
 		return result, err
 	}
 
-	// Add finalizer if not present.
+	// Add finalizer if not present. NOTE: this Update refreshes the object
+	// from the server, dropping in-memory condition edits — re-apply the
+	// ScopeResolved condition afterwards so markReady persists it.
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
-	// Find or create app.
+	// Find or create app (via the delegated client when scoped).
 	displayName := cr.DisplayName()
-	appID, clientID, clientSecret, err := r.findOrCreateApp(ctx, projectID, displayName, &cr)
+	appID, clientID, clientSecret, err := r.findOrCreateApp(ctx, zc, projectID, displayName, &cr)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -93,6 +111,40 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// deleteAppFunc returns the cleanup closure for handleDeletionStrict.
+func (r *OIDCAppReconciler) deleteAppFunc(ctx context.Context, zc *zitadel.Client, cr *zitadelv1alpha2.OIDCApp, projectID string) func() error {
+	return func() error {
+		if cr.Status.ApplicationId == "" {
+			return nil
+		}
+		_, err := zc.Application().DeleteApplication(ctx, &applicationv2.DeleteApplicationRequest{
+			ApplicationId: cr.Status.ApplicationId,
+			ProjectId:     projectID,
+		})
+		if err != nil && status.Code(err) != codes.NotFound {
+			return fmt.Errorf("deleting application: %w", err)
+		}
+		return nil
+	}
+}
+
+// resolveAppProject resolves the project ID (and inherited org ID) for the CR.
+// With a project-scoped delegation, an OIDCApp that names no project defaults
+// to the scope's project (v0.18 prototype behavior).
+func (r *OIDCAppReconciler) resolveAppProject(ctx context.Context, cr *zitadelv1alpha2.OIDCApp, rs resolvedScope) (projectID, inheritedOrgID string, err error) {
+	explicit := cr.Spec.ProjectRef != nil || cr.Spec.ProjectId != ""
+	switch {
+	case !explicit && rs.scope != nil && rs.delegate != nil && rs.delegate.ProjectID != "":
+		return rs.delegate.ProjectID, rs.scope.OrganizationID, nil
+	case !explicit && cr.Status.ProjectId != "":
+		// Scope-defaulted project recorded in status (covers deletion after
+		// maps are gone, where resolution falls back to the binding client).
+		return cr.Status.ProjectId, cr.Status.OrganizationId, nil
+	default:
+		return resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
+	}
 }
 
 func (r *OIDCAppReconciler) ensureCredentialSecret(ctx context.Context, cr *zitadelv1alpha2.OIDCApp, clientID, clientSecret string) error {
@@ -117,22 +169,22 @@ func (r *OIDCAppReconciler) updateStatusIfNeeded(ctx context.Context, cr *zitade
 	}, statusChanged)
 }
 
-func (r *OIDCAppReconciler) findOrCreateApp(ctx context.Context, projectID, displayName string, cr *zitadelv1alpha2.OIDCApp) (appID, clientID, clientSecret string, err error) {
-	existingAppID, existingApp := r.findAppByName(ctx, projectID, displayName)
+func (r *OIDCAppReconciler) findOrCreateApp(ctx context.Context, zc *zitadel.Client, projectID, displayName string, cr *zitadelv1alpha2.OIDCApp) (appID, clientID, clientSecret string, err error) {
+	existingAppID, existingApp := r.findAppByName(ctx, zc, projectID, displayName)
 
 	if existingAppID == "" {
-		return r.createOIDCApp(ctx, projectID, cr)
+		return r.createOIDCApp(ctx, zc, projectID, cr)
 	}
 
 	appID = existingAppID
 	clientID = r.getClientIDFromApp(existingApp)
-	if err := r.updateOIDCAppIfNeeded(ctx, existingAppID, projectID, existingApp, cr); err != nil {
+	if err := r.updateOIDCAppIfNeeded(ctx, zc, existingAppID, projectID, existingApp, cr); err != nil {
 		return "", "", "", err
 	}
 	// Adoption path: the client secret of an existing app cannot be read back.
 	// Regenerate it unless the referenced Secret already holds one.
 	if cr.Spec.Type == "confidential" && cr.Spec.AuthMethod != "none" {
-		clientSecret, err = regenerateAdoptedClientSecret(ctx, r.Client, r.Zitadel.Application(),
+		clientSecret, err = regenerateAdoptedClientSecret(ctx, r.Client, zc.Application(),
 			cr.Namespace, cr.Spec.SecretRef.Name, clientSecretKey(cr), projectID, existingAppID)
 		if err != nil {
 			return "", "", "", err
@@ -141,8 +193,8 @@ func (r *OIDCAppReconciler) findOrCreateApp(ctx context.Context, projectID, disp
 	return appID, clientID, clientSecret, nil
 }
 
-func (r *OIDCAppReconciler) findAppByName(ctx context.Context, projectID, appName string) (string, *applicationv2.Application) {
-	listResp, err := r.Zitadel.Application().ListApplications(ctx, &applicationv2.ListApplicationsRequest{
+func (r *OIDCAppReconciler) findAppByName(ctx context.Context, zc *zitadel.Client, projectID, appName string) (string, *applicationv2.Application) {
+	listResp, err := zc.Application().ListApplications(ctx, &applicationv2.ListApplicationsRequest{
 		Filters: []*applicationv2.ApplicationSearchFilter{
 			{
 				Filter: &applicationv2.ApplicationSearchFilter_ProjectIdFilter{
@@ -166,7 +218,7 @@ func (r *OIDCAppReconciler) findAppByName(ctx context.Context, projectID, appNam
 	return "", nil
 }
 
-func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string, cr *zitadelv1alpha2.OIDCApp) (appID, clientID, clientSecret string, err error) {
+func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, zc *zitadel.Client, projectID string, cr *zitadelv1alpha2.OIDCApp) (appID, clientID, clientSecret string, err error) {
 	appType := applicationv2.OIDCApplicationType_OIDC_APP_TYPE_WEB
 	authMethod := applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC
 	if cr.Spec.AuthMethod == "none" {
@@ -182,7 +234,7 @@ func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string,
 		accessTokenType = applicationv2.OIDCTokenType_OIDC_TOKEN_TYPE_JWT
 	}
 
-	resp, createErr := r.Zitadel.Application().CreateApplication(ctx, &applicationv2.CreateApplicationRequest{
+	resp, createErr := zc.Application().CreateApplication(ctx, &applicationv2.CreateApplicationRequest{
 		ProjectId: projectID,
 		Name:      cr.DisplayName(),
 		ApplicationType: &applicationv2.CreateApplicationRequest_OidcConfiguration{
@@ -224,7 +276,7 @@ func (r *OIDCAppReconciler) getClientIDFromApp(app *applicationv2.Application) s
 	return ""
 }
 
-func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, projectID string, app *applicationv2.Application, cr *zitadelv1alpha2.OIDCApp) error {
+func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, zc *zitadel.Client, appID, projectID string, app *applicationv2.Application, cr *zitadelv1alpha2.OIDCApp) error {
 	if app == nil {
 		return nil
 	}
@@ -259,7 +311,7 @@ func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, pr
 		"idTokenRoleChanged", idTokenRoleChanged,
 	)
 
-	_, err := r.Zitadel.Application().UpdateApplication(ctx, &applicationv2.UpdateApplicationRequest{
+	_, err := zc.Application().UpdateApplication(ctx, &applicationv2.UpdateApplicationRequest{
 		ApplicationId: appID,
 		ProjectId:     projectID,
 		Name:          cr.DisplayName(),

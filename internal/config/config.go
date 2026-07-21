@@ -39,6 +39,11 @@ type Config struct {
 	// When set, the operator validates that the namespace has this label before
 	// reconciling. When empty, no enforcement is applied (backward-compatible).
 	ProjectScopeLabel string `yaml:"projectScopeLabel"`
+
+	// OperatorNamespace enables v0.18 scope maps (prototype): the namespace
+	// holding ZitadelScopeMap CRs and delegation Secrets. When empty, scope
+	// maps are disabled and the operator behaves as v0.17.
+	OperatorNamespace string `yaml:"operatorNamespace"`
 }
 
 // DefaultConfigPath returns the default config file path (~/.config/zitadel-operator/config.yaml).

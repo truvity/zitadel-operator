@@ -6,6 +6,14 @@ import (
 
 // OIDCAppSpec defines the desired state of OIDCApp.
 type OIDCAppSpec struct {
+	// Instance optionally pins this app to a specific Zitadel instance domain
+	// (v0.18 dual-serving prototype). When set and it does not match the
+	// operator's binding domain, this operator ignores the CR entirely so the
+	// owning operator can manage it. When empty, every operator serving the
+	// namespace considers itself responsible.
+	// +optional
+	Instance string `json:"instance,omitempty"`
+
 	// ProjectRef references a Project CR managed by this operator.
 	// Mutually exclusive with ProjectId.
 	// +optional

@@ -15,28 +15,39 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/zalando/go-keyring"
 
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/controller"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 )
+
+// operatorNamespace hosts ZitadelScopeMaps and delegation Secrets in the
+// v0.18 prototype tests.
+const operatorNamespace = "zitadel-operator-system"
 
 var (
 	// zitadelClient is the direct Zitadel API client (shared by all tests).
@@ -50,6 +61,13 @@ var (
 
 	// mgrCancel stops the shared manager.
 	mgrCancel context.CancelFunc
+
+	// bindingUserID is the userId of the operator's binding credential
+	// (from the JWT key), used by the actor-proof test.
+	bindingUserID string
+
+	// delegationMgr mints per-scope delegated clients (v0.18 prototype).
+	delegationMgr *delegation.Manager
 )
 
 func TestMain(m *testing.M) {
@@ -100,6 +118,16 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// Extract the binding credential's userId (for the actor-proof test).
+	var keyMeta struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.Unmarshal([]byte(keyJSON), &keyMeta); err != nil {
+		slog.Error("failed to parse JWT key JSON", slog.Any("error", err))
+		os.Exit(1)
+	}
+	bindingUserID = keyMeta.UserID
+
 	// Start shared envtest environment.
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
@@ -149,10 +177,54 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// v0.18 scope maps (prototype): resolver + delegation wired into the
+	// OIDCApp reconciler. With zero ZitadelScopeMaps present this is
+	// passthrough, so all pre-v0.18 tests behave unchanged.
+	cacheSynced := &atomic.Bool{}
+	if err := mgr.Add(manager.RunnableFunc(func(runCtx context.Context) error {
+		if mgr.GetCache().WaitForCacheSync(runCtx) {
+			cacheSynced.Store(true)
+		}
+		<-runCtx.Done()
+		return nil
+	})); err != nil {
+		slog.Error("failed to add cache-sync tracker", slog.Any("error", err))
+		os.Exit(1)
+	}
+	scopeResolver := &scopemap.Resolver{
+		Reader:    mgr.GetClient(),
+		Namespace: operatorNamespace,
+		Instance:  cfg.Domain,
+		Synced:    cacheSynced.Load,
+		Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"),
+	}
+	delegationMgr = &delegation.Manager{
+		K8s:     mgr.GetClient(),
+		Binding: zitadelClient,
+		ClientCfg: zitadel.ClientConfig{
+			Domain:            cfg.Domain,
+			Port:              cfg.Port,
+			InsecurePlaintext: cfg.Insecure,
+		},
+		Namespace: operatorNamespace,
+	}
+	if err := (&controller.ZitadelScopeMapReconciler{
+		Client:    mgr.GetClient(),
+		Zitadel:   zitadelClient,
+		Instance:  cfg.Domain,
+		Namespace: operatorNamespace,
+		Recorder:  mgr.GetEventRecorderFor("zitadelscopemap"),
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ZitadelScopeMapReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	if err := (&controller.OIDCAppReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup OIDCAppReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -511,6 +583,13 @@ func TestMain(m *testing.M) {
 	k8sClient, err = client.New(restCfg, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		slog.Error("failed to create k8s client", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Create the operator namespace (holds scope maps + delegation Secrets).
+	opNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: operatorNamespace}}
+	if err := k8sClient.Create(ctx, opNs); err != nil {
+		slog.Error("failed to create operator namespace", slog.Any("error", err))
 		os.Exit(1)
 	}
 

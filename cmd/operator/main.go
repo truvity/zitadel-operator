@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sync/atomic"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -13,11 +14,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/controller"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 )
 
@@ -133,10 +137,58 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 		os.Exit(1)
 	}
 
+	// v0.18 scope maps (prototype): enabled when operatorNamespace is set.
+	var scopeResolver *scopemap.Resolver
+	var delegationMgr *delegation.Manager
+	if cfg.OperatorNamespace != "" {
+		synced := &atomic.Bool{}
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			if mgr.GetCache().WaitForCacheSync(ctx) {
+				synced.Store(true)
+			}
+			<-ctx.Done()
+			return nil
+		})); err != nil {
+			setupLog.Error(err, "unable to add cache-sync tracker")
+			os.Exit(1)
+		}
+		scopeResolver = &scopemap.Resolver{
+			Reader:    mgr.GetClient(),
+			Namespace: cfg.OperatorNamespace,
+			Instance:  cfg.Domain,
+			Synced:    synced.Load,
+			Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"),
+		}
+		delegationMgr = &delegation.Manager{
+			K8s:     mgr.GetClient(),
+			Binding: zitadelClient,
+			ClientCfg: zitadel.ClientConfig{
+				Domain:            cfg.Domain,
+				Port:              cfg.Port,
+				InsecurePlaintext: cfg.Insecure,
+				ExternalDomain:    cfg.ExternalDomain,
+			},
+			Namespace: cfg.OperatorNamespace,
+		}
+		if err := (&controller.ZitadelScopeMapReconciler{
+			Client:    mgr.GetClient(),
+			Zitadel:   zitadelClient,
+			Instance:  cfg.Domain,
+			Namespace: cfg.OperatorNamespace,
+			Recorder:  mgr.GetEventRecorderFor("zitadelscopemap"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ZitadelScopeMap")
+			os.Exit(1)
+		}
+		setupLog.Info("v0.18 scope maps enabled", "operatorNamespace", cfg.OperatorNamespace)
+	}
+
 	if err := (&controller.OIDCAppReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OIDCApp")
 		os.Exit(1)

@@ -69,6 +69,14 @@ spec:
                 description: IdTokenRoleAssertion determines whether roles are included
                   in the ID token.
                 type: boolean
+              instance:
+                description: |-
+                  Instance optionally pins this app to a specific Zitadel instance domain
+                  (v0.18 dual-serving prototype). When set and it does not match the
+                  operator's binding domain, this operator ignores the CR entirely so the
+                  owning operator can manage it. When empty, every operator serving the
+                  namespace considers itself responsible.
+                type: string
               name:
                 description: |-
                   Name is the display name of the application in Zitadel.

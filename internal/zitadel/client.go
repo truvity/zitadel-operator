@@ -14,6 +14,7 @@ import (
 	actionv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/action/v2"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
 	applicationv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/application/v2"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/auth"
 	idpv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/idp/v2"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	orgv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
@@ -203,6 +204,12 @@ func (c *Client) Management() management.ManagementServiceClient {
 // Admin returns the Admin service client (for instance-level operations).
 func (c *Client) Admin() admin.AdminServiceClient {
 	return c.inner.AdminService()
+}
+
+// Auth returns the v1 Auth service client (self-service operations of the
+// authenticated user, e.g. ListMyMemberships for startup binding checks).
+func (c *Client) Auth() auth.AuthServiceClient {
+	return c.inner.AuthService()
 }
 
 // Action returns the v2 Action service client.
