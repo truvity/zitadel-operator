@@ -26,6 +26,7 @@ func TestSAMLApp_WithProjectRef(t *testing.T) {
 			Name:      projName,
 			Namespace: "default",
 		},
+		Spec: zitadelv1alpha2.ProjectSpec{OrganizationId: testOrgID},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {
 		t.Fatalf("creating Project CR: %v", err)

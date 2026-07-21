@@ -2,12 +2,15 @@
 
 Reference architecture for deploying multiple zitadel-operator instances side-by-side in a single Kubernetes cluster.
 
-> **v0.18 note:** this guide describes the current (v0.17) mechanisms. v0.18
-> replaces `defaultOrganizationId`/`projectScopeLabel` routing with
-> `ZitadelScopeMap` CRs + internal delegation, and **deprecates the
-> ORG_PROJECT_CREATOR credential pattern** (see
+> **v0.18 IMPLEMENTED:** `defaultOrganizationId`/`projectScopeLabel` routing
+> described below is **removed** as of v0.18 (the operator fails fast at
+> startup if either key is present). Routing is now explicit via
+> `ZitadelScopeMap` CRs + internal delegation, and the ORG_PROJECT_CREATOR
+> credential pattern is replaced by explicit delegate minting (see
 > [Credential Model](#4-credential-model) and
 > [Operator-per-Instance and Dual-Serving](#11-operator-per-instance-and-dual-serving-v018)).
+> The historical sections referencing the removed keys are kept for context;
+> migrate with [MIGRATION-0.18.md](MIGRATION-0.18.md).
 > Design: `docs/DESIGN.md`, "v0.18 Extension".
 
 ## 1. When You Need Multiple Operators

@@ -32,8 +32,9 @@ func TestPersonalAccessToken_WithUserRef(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: zitadelv1alpha2.MachineUserSpec{
-			UserName:     userName,
-			KeySecretRef: zitadelv1alpha2.MachineKeySecretRef{Name: muSecretName},
+			OrganizationId: testOrgID,
+			UserName:       userName,
+			KeySecretRef:   zitadelv1alpha2.MachineKeySecretRef{Name: muSecretName},
 		},
 	}
 	if err := k8sClient.Create(ctx, mu); err != nil {
@@ -50,6 +51,7 @@ func TestPersonalAccessToken_WithUserRef(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: zitadelv1alpha2.PersonalAccessTokenSpec{
+			OrganizationId: testOrgID,
 			UserRef:        &zitadelv1alpha2.ResourceRef{Name: muName},
 			TokenSecretRef: zitadelv1alpha2.TokenSecretRefSpec{Name: patSecretName},
 		},

@@ -26,6 +26,7 @@ func TestUserGrant_Lifecycle(t *testing.T) {
 	// Create Project.
 	proj := &zitadelv1alpha2.Project{
 		ObjectMeta: metav1.ObjectMeta{Name: projName, Namespace: "default"},
+		Spec:       zitadelv1alpha2.ProjectSpec{OrganizationId: testOrgID},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {
 		t.Fatalf("creating Project: %v", err)
@@ -38,8 +39,9 @@ func TestUserGrant_Lifecycle(t *testing.T) {
 	mu := &zitadelv1alpha2.MachineUser{
 		ObjectMeta: metav1.ObjectMeta{Name: muName, Namespace: "default"},
 		Spec: zitadelv1alpha2.MachineUserSpec{
-			UserName:     userName,
-			KeySecretRef: zitadelv1alpha2.MachineKeySecretRef{Name: secretName},
+			OrganizationId: testOrgID,
+			UserName:       userName,
+			KeySecretRef:   zitadelv1alpha2.MachineKeySecretRef{Name: secretName},
 		},
 	}
 	if err := k8sClient.Create(ctx, mu); err != nil {
@@ -53,9 +55,10 @@ func TestUserGrant_Lifecycle(t *testing.T) {
 	grant := &zitadelv1alpha2.UserGrant{
 		ObjectMeta: metav1.ObjectMeta{Name: grantName, Namespace: "default"},
 		Spec: zitadelv1alpha2.UserGrantSpec{
-			UserRef:    &zitadelv1alpha2.ResourceRef{Name: muName},
-			ProjectRef: &zitadelv1alpha2.ResourceRef{Name: projName},
-			RoleKeys:   []string{},
+			OrganizationId: testOrgID,
+			UserRef:        &zitadelv1alpha2.ResourceRef{Name: muName},
+			ProjectRef:     &zitadelv1alpha2.ResourceRef{Name: projName},
+			RoleKeys:       []string{},
 		},
 	}
 	if err := k8sClient.Create(ctx, grant); err != nil {

@@ -2,6 +2,36 @@
 
 All notable changes to the zitadel-operator are documented here.
 
+## [Unreleased] — v0.18 (INF-422)
+
+**BREAKING** — see [docs/MIGRATION-0.18.md](docs/MIGRATION-0.18.md) for the full v0.17 → v0.18 guide.
+
+### Removed (breaking, INF-428)
+
+- **`defaultOrganizationId` config key removed.** There is no default scope: a namespace either resolves through a `ZitadelScopeMap` or (zero-maps passthrough aside) org-scoped CRs must name their organization explicitly. The operator fails fast at startup when the key is present.
+- **`projectScopeLabel` config key removed.** Label-value-as-project routing is superseded by scope maps. Fail-fast at startup when present.
+- `watchNamespaces` survives as the coarse informer filter only.
+
+### Added
+
+- **SSA status discipline (v0.18 prerequisite).** All status writes moved to Server-Side Apply with per-instance field manager `zitadel-operator/<domain>`; `conditions` are `listType=map` keyed by `type`. Fixes the condition-wipe bug found in the prototype (read-modify-write `Status().Update` silently dropped other writers' conditions) and makes two-writer dual-serving possible at all.
+- **`ZitadelScopeMap` CRD + scope resolution (INF-423).** Namespaced CRD evaluated only in the operator's namespace; mandatory `spec.instance` assertion (fail-closed `InstanceMismatch`), selector XOR literal rules, `organizationId`/`projectId` authoritative with name-drift Events, first-match top-down across name-sorted maps, cross-map conflicts fail-closed with Warning Events on both maps, `MapsNotSynced` (transient) distinguished from `NoMatchingRule` (steady-state), zero maps = v0.17 passthrough (rollout gate). **All tenant reconcilers** route through scope resolution; project-scope rules default the project for tenant CRs (recorded in `status.projectId`).
+- **Binding levels (INF-424).** Required `binding: iam-owner | org-owner` config assertion, verified at startup via `AuthService.ListMyMemberships` (crash on mismatch). Under `org-owner`: instance-level resources get `Ready=False / NotSupportedAtBindingLevel`; foreign-org scope maps are rejected with a `ForeignOrganization` Event.
+- **Internal delegation (INF-425).** Per resolved scope the operator mints a scope-limited machine user (explicit `AddMachineUser` + `AddOrgMember(ORG_OWNER)` / project-create + `AddProjectMember(PROJECT_OWNER)`; never `ORG_PROJECT_CREATOR`) and reconciles tenant CRs with the delegated key. Key persisted to a labeled Secret (`zitadel-delegation-<hash>`) in the operator namespace *before* caching; warm restart from Secrets; lazy validity re-check with re-mint; eager revoke when a scope stops matching + periodic orphan GC; internal 90-day dual-key rotation with grace overlap. During deletion, resolution/delegation failure falls back to the binding client so finalizers cannot deadlock.
+- **MachineUser extension (INF-426).** Optional `spec.roles` (user grant on the scope project, synced with drift detection), `spec.key.rotateAfter` + `rotationGrace` (dual-key rotation), key Secret upgraded to a connection bundle (`key.json`, `instanceUrl`, `issuer`, `orgId`, `projectId`, best-effort `instanceId`). Fully backward compatible.
+- **Dual-serving (INF-422).** Optional `spec.instance` pin on all tenant CRs. Foreign pin ⇒ CR completely untouched; unset pin on a namespace served by two operators ⇒ both fail closed with `InstanceResolved=False / AmbiguousInstance` via SSA with distinct field managers.
+
+### Changed
+
+- **Leader election on by default (INF-427).** `--leader-elect` defaults to true; new `--leader-election-id` flag, set by the Helm chart from the release fullname so two deployments in one namespace get distinct leases.
+- Helm chart: `config.binding` (required), `config.operatorNamespace` (defaults to release namespace), `zitadelscopemaps` RBAC, cluster-wide namespace reader whenever namespaced RBAC mode is used.
+
+### Fixed
+
+- **INF-400 root-caused and fixed:** redirect-URI list updates (and any OIDC config drift correction) never converged: `UpdateApplication` always carried the unchanged `Name`, which Zitadel's name-change command rejects with `No changes (COMMAND-2m8vx)` before applying the config update. The name is now sent only when it actually drifted.
+- **INF-430 audit:** ApplicationKey re-mints (Secret lost) never persisted the new `status.keyId`, and PersonalAccessToken re-mints never persisted the new `status.tokenId` — deletion then revoked a stale ID and leaked the live credential. Both now persist the ID and revoke the replaced key/token at re-mint time. The OIDCApp/APIApp adoption-regeneration path (0.16.0) is covered by a dedicated integration test.
+- Singleton conflict detection now tie-breaks equal creation timestamps (1s granularity) by namespace/name, making the duplicate-singleton winner deterministic.
+
 ## [0.16.0] — 2026-07-05
 
 ### Fixed

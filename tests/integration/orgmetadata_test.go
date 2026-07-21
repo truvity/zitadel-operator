@@ -23,8 +23,9 @@ func TestOrgMetadata_Lifecycle(t *testing.T) {
 	meta := &zitadelv1alpha2.OrgMetadata{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Spec: zitadelv1alpha2.OrgMetadataSpec{
-			Key:   fmt.Sprintf("test-key-%d", ts),
-			Value: "test-value",
+			OrganizationId: testOrgID,
+			Key:            fmt.Sprintf("test-key-%d", ts),
+			Value:          "test-value",
 		},
 	}
 	if err := k8sClient.Create(ctx, meta); err != nil {

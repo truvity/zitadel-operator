@@ -118,7 +118,7 @@ For operators that manage the complete identity lifecycle:
 config:
   domain: auth.example.com
   port: "443"
-  defaultOrganizationId: "376393772658861254"
+  binding: org-owner   # v0.18: assert the credential level (verified at startup)
 ```
 
 ## Installation
@@ -142,14 +142,23 @@ The operator uses a single YAML config file:
 ```yaml
 # /etc/zitadel-operator/config.yaml
 domain: auth.example.com          # Zitadel domain
+binding: iam-owner                # v0.18 (required): iam-owner | org-owner,
+                                  # verified against the credential at startup
 port: "443"                        # Zitadel API port
 insecure: false                    # Use TLS
 keyFile: /etc/zitadel/key.json    # Path to JWT key file
-defaultOrganizationId: "12345"    # Default org (optional)
+operatorNamespace: zitadel-operator # Namespace holding ZitadelScopeMaps +
+                                  # delegation Secrets (default: POD_NAMESPACE)
 watchNamespaces:                   # Limit to these namespaces (optional)
   - zitadel-operator
   - argocd
 ```
+
+> **v0.18 breaking:** `defaultOrganizationId` and `projectScopeLabel` were
+> removed — the operator fails fast at startup if either is present. Namespace
+> routing is now explicit via `ZitadelScopeMap` objects in the operator
+> namespace (zero maps = legacy passthrough). See
+> [docs/MIGRATION-0.18.md](docs/MIGRATION-0.18.md).
 
 ## Usage Examples
 
@@ -335,7 +344,7 @@ cat > ~/.config/zitadel-operator/config.yaml << EOF
 domain: your-instance.eu1.zitadel.cloud
 port: "443"
 insecure: false
-defaultOrganizationId: "your-org-id"
+binding: iam-owner
 EOF
 
 # Run tests
@@ -363,8 +372,9 @@ just test-integration
 For deployments that need multiple operators (e.g., separate employee and customer identity providers), see [Multi-Instance Deployment Guide](docs/GUIDE-MULTI-INSTANCE.md).
 
 Key features enabling multi-instance:
-- **`watchNamespaces`** — each operator watches only its namespaces
-- **`projectScopeLabel`** (v0.12.0+) — validates CRDs are in correctly-labeled namespaces
+- **`watchNamespaces`** — each operator watches only its namespaces (coarse filter)
+- **`ZitadelScopeMap`** (v0.18) — explicit, fail-closed routing of tenant namespaces to Zitadel org/project scopes; reconciliation runs with internally minted, scope-limited delegate credentials
+- **`spec.instance`** (v0.18) — per-CR instance pin for dual-served namespaces (unset + dual-served = fail-closed `AmbiguousInstance`)
 - **Namespace-scoped RBAC** — K8s enforces isolation at the API server level
 
 ## License

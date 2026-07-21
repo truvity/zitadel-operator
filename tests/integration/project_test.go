@@ -24,7 +24,8 @@ func TestProject_WithDefaultOrg(t *testing.T) {
 			Name:      name,
 			Namespace: "default",
 		},
-		Spec: zitadelv1alpha2.ProjectSpec{},
+		Spec: zitadelv1alpha2.ProjectSpec{
+			OrganizationId: testOrgID},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {
 		t.Fatalf("creating Project CR: %v", err)
@@ -116,9 +117,6 @@ func TestProject_WithExplicitOrgId(t *testing.T) {
 	name := fmt.Sprintf("projid-%d", time.Now().UnixMilli())
 
 	// Use the default org ID from config as the explicit org ID.
-	if cfg.DefaultOrganizationId == "" {
-		t.Skip("no defaultOrganizationId in config — cannot test explicit orgId")
-	}
 
 	proj := &zitadelv1alpha2.Project{
 		ObjectMeta: metav1.ObjectMeta{
@@ -126,7 +124,7 @@ func TestProject_WithExplicitOrgId(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: zitadelv1alpha2.ProjectSpec{
-			OrganizationId: cfg.DefaultOrganizationId,
+			OrganizationId: testOrgID,
 		},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {
@@ -136,8 +134,8 @@ func TestProject_WithExplicitOrgId(t *testing.T) {
 	var reconciledProj zitadelv1alpha2.Project
 	waitForReady(t, ctx, client.ObjectKeyFromObject(proj), &reconciledProj, 30*time.Second)
 
-	if reconciledProj.Status.OrganizationId != cfg.DefaultOrganizationId {
-		t.Fatalf("expected orgId=%s, got %s", cfg.DefaultOrganizationId, reconciledProj.Status.OrganizationId)
+	if reconciledProj.Status.OrganizationId != testOrgID {
+		t.Fatalf("expected orgId=%s, got %s", testOrgID, reconciledProj.Status.OrganizationId)
 	}
 
 	// Cleanup.
@@ -159,7 +157,8 @@ func TestProject_RolesSync(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: zitadelv1alpha2.ProjectSpec{
-			Roles: []string{"viewer", "admin", "editor"},
+			OrganizationId: testOrgID,
+			Roles:          []string{"viewer", "admin", "editor"},
 		},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {

@@ -174,8 +174,9 @@ func TestInstanceMember_Lifecycle(t *testing.T) {
 	mu := &zitadelv1alpha2.MachineUser{
 		ObjectMeta: metav1.ObjectMeta{Name: muName, Namespace: "default"},
 		Spec: zitadelv1alpha2.MachineUserSpec{
-			UserName:     fmt.Sprintf("instmember-bot-%d", ts),
-			KeySecretRef: zitadelv1alpha2.MachineKeySecretRef{Name: fmt.Sprintf("im-key-%d", ts)},
+			OrganizationId: testOrgID,
+			UserName:       fmt.Sprintf("instmember-bot-%d", ts),
+			KeySecretRef:   zitadelv1alpha2.MachineKeySecretRef{Name: fmt.Sprintf("im-key-%d", ts)},
 		},
 	}
 	if err := k8sClient.Create(ctx, mu); err != nil {
