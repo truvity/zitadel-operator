@@ -264,6 +264,17 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	if err := (&controller.ProjectRoleReconciler{
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ProjectRoleReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	if err := (&controller.OIDCAppReconciler{
 		Client:     mgr.GetClient(),
 		Zitadel:    zitadelClient,
