@@ -50,3 +50,5 @@ jobs:
           git commit -m "chore(deps): update devbox packages"
           git push origin "$BRANCH"
           gh pr create --title "chore(deps): update devbox packages" --body "Automated weekly devbox update." --base master --label dependencies
+          # Arm auto-merge: merges when required checks pass (rebase works in every repo)
+          gh pr merge --auto --rebase "$BRANCH"
