@@ -97,14 +97,19 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Ensure key exists and is stored in Secret.
+	prevStatusKeyID := cr.Status.KeyId
 	if err := r.ensureKey(ctx, &cr, projectID, appID); err != nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "KeyError", err.Error())
 		_ = applyStatus(ctx, r.Client, r.Config, &cr)
 		return ctrl.Result{}, err
 	}
 
-	// Status.
-	statusChanged := cr.Status.ProjectId != projectID || cr.Status.AppId != appID
+	// Status. KeyId must participate in change detection (INF-430 audit):
+	// a re-minted key whose ID is never persisted leaves deletion revoking a
+	// stale key and leaking the live one.
+	prevKeyID := prevStatusKeyID
+	statusChanged := cr.Status.ProjectId != projectID || cr.Status.AppId != appID ||
+		cr.Status.KeyId != prevKeyID
 	cr.Status.ProjectId = projectID
 	cr.Status.AppId = appID
 	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
@@ -148,6 +153,14 @@ func (r *ApplicationKeyReconciler) ensureKey(ctx context.Context, cr *zitadelv1a
 	expiration := time.Now().Add(365 * 10 * 24 * time.Hour) // 10 years
 	if cr.Spec.ExpirationDate != nil {
 		expiration = cr.Spec.ExpirationDate.Time
+	}
+
+	// Replacing a key whose Secret was lost: revoke the old one first so it
+	// does not linger past CR deletion (INF-430 audit).
+	if cr.Status.KeyId != "" {
+		if err := r.deleteKey(ctx, projectID, appID, cr.Status.KeyId); err != nil {
+			return fmt.Errorf("revoking replaced app key: %w", err)
+		}
 	}
 
 	// Create a new key via Management API.

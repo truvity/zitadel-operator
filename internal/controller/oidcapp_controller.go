@@ -274,10 +274,19 @@ func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, pr
 		"idTokenRoleChanged", idTokenRoleChanged,
 	)
 
+	// INF-400 root cause: sending the (unchanged) Name alongside a changed
+	// OIDC configuration makes Zitadel's name-change command reject the whole
+	// request with "No changes (COMMAND-2m8vx)" — the URI list then never
+	// converges. Per the API contract, an unset Name leaves the name alone,
+	// so it is only included when it actually drifted.
+	updateName := ""
+	if app.GetName() != cr.DisplayName() {
+		updateName = cr.DisplayName()
+	}
 	_, err := zclient(ctx, r.Zitadel).Application().UpdateApplication(ctx, &applicationv2.UpdateApplicationRequest{
 		ApplicationId: appID,
 		ProjectId:     projectID,
-		Name:          cr.DisplayName(),
+		Name:          updateName,
 		ApplicationType: &applicationv2.UpdateApplicationRequest_OidcConfiguration{
 			OidcConfiguration: &applicationv2.UpdateOIDCApplicationConfigurationRequest{
 				RedirectUris:             cr.Spec.RedirectUris,
