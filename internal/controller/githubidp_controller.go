@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
@@ -25,6 +26,7 @@ import (
 type GitHubIdPReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
+	Config  *config.Config
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=githubidps,verbs=get;list;watch;create;update;patch;delete
@@ -68,7 +70,7 @@ func (r *GitHubIdPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	clientSecret, err := r.resolveClientSecret(ctx, &cr)
 	if err != nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "SecretNotFound", err.Error())
-		_ = r.Status().Update(ctx, &cr)
+		_ = applyStatus(ctx, r.Client, r.Config, &cr)
 		return ctrl.Result{RequeueAfter: requeueOnError}, nil
 	}
 
@@ -85,7 +87,7 @@ func (r *GitHubIdPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		cr.Status.Ready = true
 		cr.Status.LastSyncTime = &now
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
+		if err := applyStatus(ctx, r.Client, r.Config, &cr); err != nil {
 			return ctrl.Result{}, err
 		}
 	}

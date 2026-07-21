@@ -80,7 +80,7 @@ func (r *HumanUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		pw, err := r.resolveInitialPassword(ctx, &cr)
 		if err != nil {
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "SecretNotFound", err.Error())
-			_ = r.Status().Update(ctx, &cr)
+			_ = applyStatus(ctx, r.Client, r.Config, &cr)
 			return ctrl.Result{RequeueAfter: requeueOnError}, nil
 		}
 		initialPassword = pw
@@ -96,7 +96,7 @@ func (r *HumanUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	statusChanged := cr.Status.UserId != userID || cr.Status.OrganizationId != orgID
 	cr.Status.UserId = userID
 	cr.Status.OrganizationId = orgID
-	if err := markReady(ctx, r.Client, &cr, statusFields{
+	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged); err != nil {
 		return ctrl.Result{}, err

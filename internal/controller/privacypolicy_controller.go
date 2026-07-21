@@ -45,7 +45,7 @@ func (r *PrivacyPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if isRefNotReady(err) {
 			logger.Info("waiting for organization ref to become ready", "error", err)
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "OrgNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
+			_ = applyStatus(ctx, r.Client, r.Config, &cr)
 			return ctrl.Result{RequeueAfter: requeueOnError}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
@@ -88,7 +88,7 @@ func (r *PrivacyPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		cr.Status.Ready = true
 		cr.Status.LastSyncTime = &now
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-		if err := r.Status().Update(ctx, &cr); err != nil {
+		if err := applyStatus(ctx, r.Client, r.Config, &cr); err != nil {
 			return ctrl.Result{}, err
 		}
 	}

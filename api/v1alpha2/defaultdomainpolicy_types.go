@@ -28,6 +28,8 @@ type DefaultDomainPolicyStatus struct {
 	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
 
 	// Conditions represent the latest available observations of the resource's state.
+	// +listType=map
+	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 

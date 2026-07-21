@@ -2,15 +2,59 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/truvity/zitadel-operator/internal/config"
 )
+
+// fieldManagerFor returns the SSA field manager identity for status writes.
+// Each operator process owns its own status fields via a per-instance manager
+// (zitadel-operator/<domain>), enabling two operators to co-write status on
+// dual-served CRs without wiping each other's conditions.
+func fieldManagerFor(cfg *config.Config) string {
+	if cfg != nil && cfg.Domain != "" {
+		return "zitadel-operator/" + cfg.Domain
+	}
+	return "zitadel-operator"
+}
+
+// applyStatus persists the object's status via Server-Side Apply with the
+// operator's per-instance field manager. Unlike read-modify-write
+// Status().Update, SSA merges per manager: conditions are a listType=map
+// keyed by type, so conditions written by another manager survive.
+// This is the v0.18 hard prerequisite (see DESIGN "SSA Status Discipline"):
+// full-object Update was demonstrated to silently wipe in-memory condition
+// edits and cannot support two writers at all.
+func applyStatus(ctx context.Context, k8s client.Client, cfg *config.Config, obj client.Object) error {
+	gvk, err := apiutil.GVKForObject(obj, k8s.Scheme())
+	if err != nil {
+		return fmt.Errorf("resolving GVK for SSA status apply: %w", err)
+	}
+	m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return fmt.Errorf("converting object for SSA status apply: %w", err)
+	}
+	patch := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	patch.SetGroupVersionKind(gvk)
+	patch.SetName(obj.GetName())
+	patch.SetNamespace(obj.GetNamespace())
+	if status, ok := m["status"]; ok {
+		patch.Object["status"] = status
+	} else {
+		patch.Object["status"] = map[string]interface{}{}
+	}
+	return k8s.Status().Patch(ctx, patch, client.Apply, //nolint:staticcheck // SA1019: unstructured apply-patch is the stable path for a minimal status-only SSA document; the typed Apply() API needs generated apply configurations
+		client.FieldOwner(fieldManagerFor(cfg)), client.ForceOwnership)
+}
 
 // handleDeletion checks if the object is being deleted. If so, it calls the provided
 // deleteFunc (which may be nil for leave-as-is behavior), removes the finalizer, and
@@ -92,7 +136,7 @@ type statusFields struct {
 // markReady sets the resource to Ready with a Reconciled condition if not already ready.
 // The statusChanged parameter allows callers to force an update even when ready is already true
 // (e.g. when a status field like OrganizationId changed).
-func markReady(ctx context.Context, k8s client.Client, obj client.Object, sf statusFields, statusChanged bool) error {
+func markReady(ctx context.Context, k8s client.Client, cfg *config.Config, obj client.Object, sf statusFields, statusChanged bool) error {
 	if *sf.ready && !statusChanged {
 		return nil
 	}
@@ -102,20 +146,20 @@ func markReady(ctx context.Context, k8s client.Client, obj client.Object, sf sta
 		*sf.lastSyncTime = &now
 	}
 	setCondition(sf.conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
-	return k8s.Status().Update(ctx, obj)
+	return applyStatus(ctx, k8s, cfg, obj)
 }
 
 // waitForRef checks if err is a "ref not ready" condition and, if so, sets
 // a condition on the object and returns a requeue result. Returns (true, result) if
 // handled, (false, _) if the error is not a ref-not-ready error.
-func waitForRef(ctx context.Context, k8s client.Client, obj client.Object, conditions *[]metav1.Condition, conditionReason string, err error) (waiting bool, result ctrl.Result) {
+func waitForRef(ctx context.Context, k8s client.Client, cfg *config.Config, obj client.Object, conditions *[]metav1.Condition, conditionReason string, err error) (waiting bool, result ctrl.Result) {
 	if !isRefNotReady(err) {
 		return false, ctrl.Result{}
 	}
 	logger := log.FromContext(ctx)
 	logger.Info("waiting for ref to become ready", "reason", conditionReason, "error", err)
 	setCondition(conditions, ConditionTypeReady, metav1.ConditionFalse, conditionReason, err.Error())
-	_ = k8s.Status().Update(ctx, obj)
+	_ = applyStatus(ctx, k8s, cfg, obj)
 	return true, ctrl.Result{RequeueAfter: requeueOnError}
 }
 
@@ -127,7 +171,7 @@ func checkProjectScope(ctx context.Context, k8s client.Client, cfg *config.Confi
 		return true, ctrl.Result{}, err
 	}
 	if !shouldProceed {
-		_ = k8s.Status().Update(ctx, obj)
+		_ = applyStatus(ctx, k8s, cfg, obj)
 		log.FromContext(ctx).Info("project scope validation failed, requeueing",
 			"namespace", namespace,
 			"label", cfg.ProjectScopeLabel)

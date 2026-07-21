@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
@@ -23,6 +24,7 @@ import (
 type SmsProviderReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
+	Config  *config.Config
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=smsproviders,verbs=get;list;watch;create;update;patch;delete
@@ -38,12 +40,12 @@ func (r *SmsProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Validate: exactly one of twilio or http must be set.
 	if cr.Spec.Twilio == nil && cr.Spec.Http == nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "InvalidSpec", "one of twilio or http must be set")
-		_ = r.Status().Update(ctx, &cr)
+		_ = applyStatus(ctx, r.Client, r.Config, &cr)
 		return ctrl.Result{}, nil
 	}
 	if cr.Spec.Twilio != nil && cr.Spec.Http != nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "InvalidSpec", "twilio and http are mutually exclusive")
-		_ = r.Status().Update(ctx, &cr)
+		_ = applyStatus(ctx, r.Client, r.Config, &cr)
 		return ctrl.Result{}, nil
 	}
 
@@ -62,7 +64,7 @@ func (r *SmsProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Ensure SMS provider exists.
 	providerID, err := r.ensureSmsProvider(ctx, &cr)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "SecretNotFound", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "SecretNotFound", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, err
@@ -74,7 +76,7 @@ func (r *SmsProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Update status.
 	statusChanged := cr.Status.ProviderId != providerID
 	cr.Status.ProviderId = providerID
-	return ctrl.Result{RequeueAfter: requeueInterval}, markReady(ctx, r.Client, &cr, statusFields{
+	return ctrl.Result{RequeueAfter: requeueInterval}, markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged)
 }

@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
@@ -19,6 +20,7 @@ import (
 type DefaultLabelPolicyReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
+	Config  *config.Config
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=defaultlabelpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -69,7 +71,7 @@ func (r *DefaultLabelPolicyReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	// Status.
-	if err := markReady(ctx, r.Client, &cr, statusFields{
+	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, false); err != nil {
 		return ctrl.Result{}, err
@@ -89,7 +91,7 @@ func (r *DefaultLabelPolicyReconciler) checkConflict(ctx context.Context, cr *zi
 		candidates[i] = singletonCandidate{UID: list.Items[i].UID, Name: list.Items[i].Name, Namespace: list.Items[i].Namespace, CreationTimestamp: list.Items[i].CreationTimestamp, IsDeleting: !list.Items[i].DeletionTimestamp.IsZero()}
 	}
 	if checkSingletonConflict(cr, candidates, &cr.Status.Conditions, &cr.Status.Ready, "DefaultLabelPolicy") {
-		_ = r.Status().Update(ctx, cr)
+		_ = applyStatus(ctx, r.Client, r.Config, cr)
 		return true, nil
 	}
 	return false, nil

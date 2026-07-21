@@ -119,6 +119,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.OrganizationReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Organization")
 		os.Exit(1)
@@ -163,6 +164,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.ActionTargetReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ActionTarget")
 		os.Exit(1)
@@ -171,6 +173,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.ActionExecutionReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ActionExecution")
 		os.Exit(1)
@@ -269,6 +272,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultLoginPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultLoginPolicy")
 		os.Exit(1)
@@ -277,6 +281,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultDomainPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultDomainPolicy")
 		os.Exit(1)
@@ -285,6 +290,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.GoogleIdPReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GoogleIdP")
 		os.Exit(1)
@@ -320,6 +326,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.EmailProviderReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "EmailProvider")
 		os.Exit(1)
@@ -346,6 +353,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.InstanceMemberReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InstanceMember")
 		os.Exit(1)
@@ -381,6 +389,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.SmsProviderReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SmsProvider")
 		os.Exit(1)
@@ -389,6 +398,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.GitHubIdPReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitHubIdP")
 		os.Exit(1)
@@ -397,6 +407,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultLockoutPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultLockoutPolicy")
 		os.Exit(1)
@@ -405,6 +416,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultPasswordComplexityPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultPasswordComplexityPolicy")
 		os.Exit(1)
@@ -413,6 +425,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultPasswordAgePolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultPasswordAgePolicy")
 		os.Exit(1)
@@ -421,6 +434,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultNotificationPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultNotificationPolicy")
 		os.Exit(1)
@@ -429,6 +443,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultLabelPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultLabelPolicy")
 		os.Exit(1)
@@ -437,6 +452,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultPrivacyPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultPrivacyPolicy")
 		os.Exit(1)
@@ -445,6 +461,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultOIDCSettingsReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultOIDCSettings")
 		os.Exit(1)
@@ -462,6 +479,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	if err := (&controller.DefaultMessageTextReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DefaultMessageText")
 		os.Exit(1)

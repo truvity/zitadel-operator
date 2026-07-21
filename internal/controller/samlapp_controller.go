@@ -42,7 +42,7 @@ func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Resolve project ID (and inherited org ID).
 	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
@@ -79,7 +79,7 @@ func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		appID, err = r.createSAMLApp(ctx, projectID, &cr)
 		if err != nil {
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "CreateFailed", err.Error())
-			_ = r.Status().Update(ctx, &cr)
+			_ = applyStatus(ctx, r.Client, r.Config, &cr)
 			return ctrl.Result{}, err
 		}
 	} else {
@@ -92,7 +92,7 @@ func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	cr.Status.ApplicationId = appID
 	cr.Status.ProjectId = projectID
 	cr.Status.OrganizationId = inheritedOrgID
-	return ctrl.Result{RequeueAfter: requeueInterval}, markReady(ctx, r.Client, &cr, statusFields{
+	return ctrl.Result{RequeueAfter: requeueInterval}, markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged)
 }

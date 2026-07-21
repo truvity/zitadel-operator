@@ -48,7 +48,7 @@ func (r *OIDCAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Resolve project ID (and inherited org ID).
 	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
@@ -112,7 +112,7 @@ func (r *OIDCAppReconciler) updateStatusIfNeeded(ctx context.Context, cr *zitade
 	cr.Status.ClientId = clientID
 	cr.Status.ProjectId = projectID
 	cr.Status.OrganizationId = inheritedOrgID
-	return markReady(ctx, r.Client, cr, statusFields{
+	return markReady(ctx, r.Client, r.Config, cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged)
 }

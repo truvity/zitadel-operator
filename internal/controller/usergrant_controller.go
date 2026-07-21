@@ -41,7 +41,7 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Resolve organization.
 	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
@@ -53,7 +53,7 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Resolve user ID.
 	userID, err := r.resolveUserID(ctx, &cr)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "UserNotReady", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "UserNotReady", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving user: %w", err)
@@ -62,7 +62,7 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Resolve project ID.
 	projectID, _, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
@@ -90,7 +90,7 @@ func (r *UserGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Status.
 	statusChanged := cr.Status.GrantId != grantID
 	cr.Status.GrantId = grantID
-	if err := markReady(ctx, r.Client, &cr, statusFields{
+	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged); err != nil {
 		return ctrl.Result{}, err

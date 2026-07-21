@@ -44,7 +44,7 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Resolve project ID (and inherited org ID).
 	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
@@ -53,7 +53,7 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Resolve app ID.
 	appID, err := resolveAppId(ctx, r.Client, cr.Spec.AppRef, cr.Spec.AppId, cr.Namespace)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "AppNotReady", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "AppNotReady", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving app: %w", err)
@@ -79,7 +79,7 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Ensure key exists and is stored in Secret.
 	if err := r.ensureKey(ctx, &cr, projectID, appID); err != nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "KeyError", err.Error())
-		_ = r.Status().Update(ctx, &cr)
+		_ = applyStatus(ctx, r.Client, r.Config, &cr)
 		return ctrl.Result{}, err
 	}
 
@@ -87,7 +87,7 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	statusChanged := cr.Status.ProjectId != projectID || cr.Status.AppId != appID
 	cr.Status.ProjectId = projectID
 	cr.Status.AppId = appID
-	if err := markReady(ctx, r.Client, &cr, statusFields{
+	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged); err != nil {
 		return ctrl.Result{}, err

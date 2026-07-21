@@ -52,7 +52,7 @@ func (r *MachineUserReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if isRefNotReady(err) {
 			logger.Info("waiting for organization ref to become ready", "error", err)
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "OrgNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
+			_ = applyStatus(ctx, r.Client, r.Config, &cr)
 			return ctrl.Result{RequeueAfter: requeueOnError}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
@@ -96,7 +96,7 @@ func (r *MachineUserReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	statusChanged := cr.Status.UserId != userID || cr.Status.OrganizationId != orgID
 	cr.Status.UserId = userID
 	cr.Status.OrganizationId = orgID
-	if err := markReady(ctx, r.Client, &cr, statusFields{
+	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged); err != nil {
 		return ctrl.Result{}, err
