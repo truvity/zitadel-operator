@@ -36,10 +36,10 @@ func namespace(name string, labels map[string]string) *corev1.Namespace {
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
 }
 
-func scopeMap(name string, rules ...zitadelv1alpha2.ScopeMapRule) *zitadelv1alpha2.ZitadelScopeMap {
-	return &zitadelv1alpha2.ZitadelScopeMap{
+func scopeMap(name string, rules ...zitadelv1alpha2.ScopeMapRule) *zitadelv1alpha2.ScopeMap {
+	return &zitadelv1alpha2.ScopeMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: operatorNS},
-		Spec: zitadelv1alpha2.ZitadelScopeMapSpec{
+		Spec: zitadelv1alpha2.ScopeMapSpec{
 			Instance:       testInstance,
 			Organization:   "Test Org",
 			OrganizationId: "123456",
@@ -175,7 +175,7 @@ func TestValidateRule(t *testing.T) {
 		{"literal only", zitadelv1alpha2.ScopeMapRule{Name: "r", Namespaces: []string{"x"}}, false},
 		{"both", zitadelv1alpha2.ScopeMapRule{Name: "r", NamespaceSelector: sel, Namespaces: []string{"x"}}, true},
 		{"neither", zitadelv1alpha2.ScopeMapRule{Name: "r"}, true},
-		{"projectId without project", zitadelv1alpha2.ScopeMapRule{Name: "r", Namespaces: []string{"x"}, ProjectId: "42"}, true},
+		{"projectId without project (ID authoritative)", zitadelv1alpha2.ScopeMapRule{Name: "r", Namespaces: []string{"x"}, ProjectId: "42"}, false},
 		{"projectId with project", zitadelv1alpha2.ScopeMapRule{Name: "r", Namespaces: []string{"x"}, Project: "p", ProjectId: "42"}, false},
 	}
 	for _, tc := range cases {

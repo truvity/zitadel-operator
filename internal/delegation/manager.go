@@ -625,11 +625,23 @@ func (m *Manager) delegateFromSecret(ctx context.Context, secret *corev1.Secret)
 }
 
 func (m *Manager) persistSecret(ctx context.Context, scope *scopemap.Scope, hash string, keyJSON []byte, d *Delegate) error {
+	project := scope.ProjectName
+	if project == "" {
+		project = scope.ProjectID
+	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      SecretNamePrefix + hash,
 			Namespace: m.Namespace,
 			Labels:    map[string]string{DelegationLabel: "true"},
+			// Human-readable scope identity: the hash-named Secret is
+			// self-describing for operators on call (scope.json holds the
+			// full canonical identity).
+			Annotations: map[string]string{
+				"zitadel.truvity.io/scope-instance": scope.Instance,
+				"zitadel.truvity.io/scope-org":      scope.OrganizationID,
+				"zitadel.truvity.io/scope-project":  project,
+			},
 		},
 		Data: map[string][]byte{
 			keyDataKey:        keyJSON,

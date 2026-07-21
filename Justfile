@@ -31,7 +31,7 @@ test:
 
 # Run integration tests (requires real Zitadel + devbox shell)
 test-integration:
-    go test -tags=integration -v ./tests/integration/... -count=1 -timeout=120s
+    go test -tags=integration -v ./tests/integration/... -count=1 -timeout=30m
 
 # Run linters
 lint:

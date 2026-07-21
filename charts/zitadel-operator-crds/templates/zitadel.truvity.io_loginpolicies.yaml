@@ -47,12 +47,19 @@ spec:
               (org-scoped).
             properties:
               allowDomainDiscovery:
+                description: AllowDomainDiscovery enables org discovery by the domain
+                  suffix of the login name.
                 type: boolean
               allowExternalIdp:
+                description: AllowExternalIdp allows login through configured external
+                  identity providers.
                 type: boolean
               allowRegister:
+                description: AllowRegister allows user self-registration.
                 type: boolean
               defaultRedirectUri:
+                description: DefaultRedirectUri is where users land after login when
+                  no app context exists.
                 type: string
               disableLoginWithEmail:
                 description: DisableLoginWithEmail disables login using email addresses.
@@ -61,12 +68,20 @@ spec:
                 description: DisableLoginWithPhone disables login using phone numbers.
                 type: boolean
               externalLoginCheckLifetime:
+                description: ExternalLoginCheckLifetime is how long an external IdP
+                  login stays valid (duration string).
                 type: string
               forceMfa:
+                description: ForceMfa requires multi-factor authentication for all
+                  users.
                 type: boolean
               forceMfaLocalOnly:
+                description: ForceMfaLocalOnly requires MFA only for local (non-IdP)
+                  authentication.
                 type: boolean
               hidePasswordReset:
+                description: HidePasswordReset hides the password-reset link on the
+                  login form.
                 type: boolean
               idps:
                 description: Idps is the list of identity providers allowed for login
@@ -99,18 +114,25 @@ spec:
                   type: object
                 type: array
               ignoreUnknownUsernames:
+                description: IgnoreUnknownUsernames shows the password step even for
+                  unknown users (user-enumeration hardening).
                 type: boolean
               instance:
                 description: |-
-                  Instance optionally pins this resource to a specific Zitadel instance
-                  domain (v0.18 dual-serving). When set to a domain other than this
-                  operator's binding, the CR is ignored entirely so the owning operator
-                  can manage it. When empty while the namespace is served by two
-                  operators, both fail closed with an AmbiguousInstance condition.
+                  Instance optionally pins this resource to one operator's instance
+                  identity — the operator config's instanceAlias, defaulting to its
+                  domain (v0.18 dual-serving). When set to another identity, the CR is
+                  ignored entirely so the owning operator can manage it. When empty
+                  while the namespace is served by two operators, both fail closed with
+                  an AmbiguousInstance condition.
                 type: string
               mfaInitSkipLifetime:
+                description: MfaInitSkipLifetime is how long users may postpone MFA
+                  setup (duration string; "0s" = no skip).
                 type: string
               multiFactorCheckLifetime:
+                description: MultiFactorCheckLifetime is how long a multi-factor check
+                  stays valid (duration string).
                 type: string
               multiFactors:
                 description: MultiFactors is the list of allowed multi-factor types.
@@ -139,13 +161,18 @@ spec:
                 - name
                 type: object
               passwordCheckLifetime:
+                description: PasswordCheckLifetime is how long a password check stays
+                  valid (Go/Zitadel duration string, e.g. "240h").
                 type: string
               passwordlessType:
+                description: PasswordlessType enables passwordless (passkey) login.
                 enum:
                 - not_allowed
                 - allowed
                 type: string
               secondFactorCheckLifetime:
+                description: SecondFactorCheckLifetime is how long a second-factor
+                  check stays valid (duration string).
                 type: string
               secondFactors:
                 description: SecondFactors is the list of allowed second factor types.
@@ -153,6 +180,7 @@ spec:
                   type: string
                 type: array
               userLogin:
+                description: UserLogin allows username/password login.
                 type: boolean
             type: object
           status:

@@ -7,6 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,17 +77,17 @@ const ConditionTypeInstanceResolved = "InstanceResolved"
 // (foreign-instance deletes are no-ops server-side: the recorded IDs don't
 // exist on the other instance).
 func instanceGate(ctx context.Context, k8s client.Client, cfg *config.Config, obj client.Object, pinned string, conditions *[]metav1.Condition) (done bool, result ctrl.Result, err error) {
-	domain := ""
+	identity := ""
 	if cfg != nil {
-		domain = cfg.Domain
+		identity = cfg.InstanceIdentity()
 	}
 	if pinned != "" {
-		if pinned != domain {
+		if pinned != identity {
 			// Foreign pin: hands-off entirely.
 			return true, ctrl.Result{}, nil
 		}
 		setCondition(conditions, ConditionTypeInstanceResolved, metav1.ConditionTrue, "Pinned",
-			"spec.instance pins this resource to instance "+domain)
+			"spec.instance pins this resource to instance "+identity)
 		return false, ctrl.Result{}, nil
 	}
 
@@ -228,6 +231,14 @@ func resolveScopeAndClient(
 		}
 		setCondition(conditions, ConditionTypeScopeResolved, metav1.ConditionFalse, "DelegationFailed", derr.Error())
 		_ = applyStatus(ctx, k8s, cfg, obj)
+		if code := status.Code(derr); code == codes.PermissionDenied || code == codes.Unauthenticated {
+			// Permission-shaped failures are configuration states (e.g. an
+			// org-owner binding that cannot grant), not transient controller
+			// errors: fail closed without polluting the error metrics and
+			// re-check on the periodic interval.
+			logger.Info("delegation denied, fail-closed", "namespace", namespace, "error", derr)
+			return resolvedScope{}, true, ctrl.Result{RequeueAfter: requeueInterval}, nil
+		}
 		return resolvedScope{}, true, ctrl.Result{}, derr
 	}
 
@@ -249,8 +260,12 @@ func applyScopeResolvedCondition(rs resolvedScope, conditions *[]metav1.Conditio
 }
 
 // classifyScopeError maps resolver errors to condition reasons and requeue
-// intervals. MapsNotSynced is transient (short requeue); the rest are
-// steady-state fail-closed (slower requeue to observe map/namespace changes).
+// intervals. MapsNotSynced / ScopeMapNotReady are transient (short requeue);
+// NoMatchingRule / ScopeConflict / InstanceMismatch are confirmed
+// steady-state rejects and back off to the periodic interval — a namespace
+// full of orphaned CRs must not hot-loop every 10s forever. (Spec changes
+// still trigger immediate reconciles; recovery after a map fix is picked up
+// within one periodic cycle.)
 // Empty reason = unclassified, surface as reconcile error.
 func classifyScopeError(err error) (string, time.Duration) {
 	var noMatch *scopemap.NoMatchError
@@ -261,11 +276,11 @@ func classifyScopeError(err error) (string, time.Duration) {
 	case errors.Is(err, scopemap.ErrMapsNotSynced):
 		return "MapsNotSynced", requeueOnScopeSync
 	case errors.As(err, &noMatch):
-		return "NoMatchingRule", requeueOnError
+		return "NoMatchingRule", requeueInterval
 	case errors.As(err, &conflict):
-		return "ScopeConflict", requeueOnError
+		return "ScopeConflict", requeueInterval
 	case errors.As(err, &mismatch):
-		return "InstanceMismatch", requeueOnError
+		return "InstanceMismatch", requeueInterval
 	case errors.As(err, &notReady):
 		return "ScopeMapNotReady", requeueOnScopeSync
 	default:

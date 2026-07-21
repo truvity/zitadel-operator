@@ -28,14 +28,26 @@ const (
 
 	// ConditionTypeOrganizationResolved reports org name/ID resolution state.
 	ConditionTypeOrganizationResolved = "OrganizationResolved"
+
+	// ConditionTypeBindingContained reports whether the map's organization is
+	// within the operator binding's reach. False/ForeignOrganization is the
+	// long-lived visible state for org-owner bindings serving a foreign-org
+	// map (the Event alone would expire after ~1h).
+	ConditionTypeBindingContained = "BindingContained"
+
+	// ConditionTypeOrganizationNameDrift is True while spec.organization
+	// disagrees with the actual org name of the authoritative
+	// spec.organizationId (long-lived drift is a condition, not just an
+	// expiring Event).
+	ConditionTypeOrganizationNameDrift = "OrganizationNameDrift"
 )
 
-// ZitadelScopeMapReconciler validates ZitadelScopeMap objects:
+// ScopeMapReconciler validates ScopeMap objects:
 // instance match (fail-closed on mismatch), rule invariants, and
 // organization resolution (ID authoritative; name drift = Event).
 // Every reconcile (including map deletion) triggers a delegation sweep so
 // delegates are revoked eagerly when their scope stops matching.
-type ZitadelScopeMapReconciler struct {
+type ScopeMapReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
@@ -48,15 +60,15 @@ type ZitadelScopeMapReconciler struct {
 	GC *delegation.GC
 }
 
-// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=zitadelscopemaps,verbs=get;list;watch
-// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=zitadelscopemaps/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=scopemaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups=zitadel.truvity.io,resources=scopemaps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
-func (r *ZitadelScopeMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ScopeMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var cr zitadelv1alpha2.ZitadelScopeMap
+	var cr zitadelv1alpha2.ScopeMap
 	if err := r.Get(ctx, req.NamespacedName, &cr); err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			// Map deleted: sweep so delegates of vanished scopes are revoked.
@@ -67,7 +79,7 @@ func (r *ZitadelScopeMapReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if cr.Namespace != r.Namespace {
-		logger.Info("ignoring ZitadelScopeMap outside operator namespace", "namespace", cr.Namespace)
+		logger.Info("ignoring ScopeMap outside operator namespace", "namespace", cr.Namespace)
 		return ctrl.Result{}, nil
 	}
 
@@ -102,10 +114,15 @@ func (r *ZitadelScopeMapReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			resolvedOrgID, r.Config.BoundOrganizationId)
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse,
 			"NotSupportedAtBindingLevel", msg)
+		setCondition(&cr.Status.Conditions, ConditionTypeBindingContained, metav1.ConditionFalse,
+			"ForeignOrganization", msg)
 		if r.Recorder != nil {
 			r.Recorder.Event(&cr, corev1.EventTypeWarning, "ForeignOrganization", msg)
 		}
 		ready = false
+	} else if r.Config != nil && r.Config.Binding == config.BindingOrgOwner {
+		setCondition(&cr.Status.Conditions, ConditionTypeBindingContained, metav1.ConditionTrue,
+			"Contained", "map organization is within the org-owner binding")
 	}
 
 	if ready {
@@ -127,7 +144,7 @@ func (r *ZitadelScopeMapReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 }
 
 // validateMap checks instance match and rule invariants, recording conditions.
-func (r *ZitadelScopeMapReconciler) validateMap(_ context.Context, cr *zitadelv1alpha2.ZitadelScopeMap) bool {
+func (r *ScopeMapReconciler) validateMap(_ context.Context, cr *zitadelv1alpha2.ScopeMap) bool {
 	ready := true
 
 	// Instance check: fail-closed on mismatch.
@@ -139,6 +156,13 @@ func (r *ZitadelScopeMapReconciler) validateMap(_ context.Context, cr *zitadelv1
 	} else {
 		setCondition(&cr.Status.Conditions, ConditionTypeInstanceMatch, metav1.ConditionTrue,
 			"InstanceMatch", "spec.instance matches the operator binding")
+	}
+
+	// Organization identity: at least one of name / ID.
+	if cr.Spec.Organization == "" && cr.Spec.OrganizationId == "" {
+		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse,
+			"InvalidSpec", "one of spec.organization or spec.organizationId must be set")
+		ready = false
 	}
 
 	// Rule invariants.
@@ -154,7 +178,7 @@ func (r *ZitadelScopeMapReconciler) validateMap(_ context.Context, cr *zitadelv1
 
 // sweep triggers an eager delegation sweep, tolerating transient failures
 // (the periodic GC loop catches anything missed here).
-func (r *ZitadelScopeMapReconciler) sweep(ctx context.Context) {
+func (r *ScopeMapReconciler) sweep(ctx context.Context) {
 	if r.GC == nil {
 		return
 	}
@@ -167,7 +191,7 @@ func (r *ZitadelScopeMapReconciler) sweep(ctx context.Context) {
 // spec.organizationId wins when set; the actual org name is compared against
 // spec.organization and drift is reported as an Event (not an error).
 // Without an ID, the org is looked up by exact name.
-func (r *ZitadelScopeMapReconciler) resolveOrganization(ctx context.Context, cr *zitadelv1alpha2.ZitadelScopeMap) (string, error) {
+func (r *ScopeMapReconciler) resolveOrganization(ctx context.Context, cr *zitadelv1alpha2.ScopeMap) (string, error) {
 	if cr.Spec.OrganizationId != "" {
 		resp, err := r.Zitadel.Organization().ListOrganizations(ctx, &orgv2.ListOrganizationsRequest{
 			Queries: []*orgv2.SearchQuery{{
@@ -182,11 +206,23 @@ func (r *ZitadelScopeMapReconciler) resolveOrganization(ctx context.Context, cr 
 		if len(resp.GetResult()) == 0 {
 			return "", fmt.Errorf("organization id %s not found", cr.Spec.OrganizationId)
 		}
+		// Name drift: the ID is authoritative; a differing (non-empty) name
+		// is long-lived visible state, so it is a condition as well as an
+		// Event (Events expire after ~1h).
 		actual := resp.GetResult()[0].GetName()
-		if actual != cr.Spec.Organization && r.Recorder != nil {
-			r.Recorder.Eventf(cr, corev1.EventTypeWarning, "OrganizationNameDrift",
-				"spec.organization %q differs from actual name %q of org %s (ID is authoritative)",
-				cr.Spec.Organization, actual, cr.Spec.OrganizationId)
+		if cr.Spec.Organization != "" && actual != cr.Spec.Organization {
+			setCondition(&cr.Status.Conditions, ConditionTypeOrganizationNameDrift, metav1.ConditionTrue,
+				"NameDrift",
+				fmt.Sprintf("spec.organization %q differs from actual name %q of org %s (ID is authoritative)",
+					cr.Spec.Organization, actual, cr.Spec.OrganizationId))
+			if r.Recorder != nil {
+				r.Recorder.Eventf(cr, corev1.EventTypeWarning, "OrganizationNameDrift",
+					"spec.organization %q differs from actual name %q of org %s (ID is authoritative)",
+					cr.Spec.Organization, actual, cr.Spec.OrganizationId)
+			}
+		} else {
+			setCondition(&cr.Status.Conditions, ConditionTypeOrganizationNameDrift, metav1.ConditionFalse,
+				"InSync", "spec.organization matches the actual organization name")
 		}
 		return cr.Spec.OrganizationId, nil
 	}
@@ -213,10 +249,10 @@ func (r *ZitadelScopeMapReconciler) resolveOrganization(ctx context.Context, cr 
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ZitadelScopeMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ScopeMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&zitadelv1alpha2.ZitadelScopeMap{}).
-		Named("zitadelscopemap").
+		For(&zitadelv1alpha2.ScopeMap{}).
+		Named("scopemap").
 		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
 }

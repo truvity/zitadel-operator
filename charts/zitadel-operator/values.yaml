@@ -31,9 +31,14 @@ resources:
 # Operator configuration (rendered into ConfigMap).
 config:
   domain: ""
+  # NOTE: port is a string (quoted) — the operator config schema requires it.
   port: "443"
   insecure: false
   externalDomain: ""
+  # Stable logical name for the bound instance (spec.instance pins, ScopeMap
+  # assertions and SSA field-manager identity). Defaults to config.domain;
+  # set it before go-live so a later domain migration cannot orphan pins.
+  instanceAlias: ""
   # Binding assertion (v0.18, required): iam-owner | org-owner.
   # Verified at startup against the credential's actual memberships.
   binding: ""
@@ -41,7 +46,7 @@ config:
   # In namespaced mode the release namespace must be included (scope maps and
   # delegation Secrets live there).
   watchNamespaces: []
-  # Namespace holding ZitadelScopeMap objects and delegation Secrets.
+  # Namespace holding ScopeMap objects and delegation Secrets.
   # Defaults to the release namespace.
   operatorNamespace: ""
 
@@ -56,6 +61,10 @@ credentials:
 # deployments in one namespace never fight over a single lease.
 leaderElection:
   enabled: true
+  # Disabling leader election requires this explicit acknowledgement — a
+  # rolling update always runs two pods at once, and without a lease both
+  # mint delegates and write Secrets concurrently.
+  acknowledgeDisabledRisk: false
 
 nodeSelector: {}
 tolerations: []

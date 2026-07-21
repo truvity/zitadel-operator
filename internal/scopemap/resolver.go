@@ -1,5 +1,5 @@
 // Package scopemap resolves tenant namespaces to Zitadel org/project scopes
-// via ZitadelScopeMap CRs living in the operator's namespace.
+// via ScopeMap CRs living in the operator's namespace.
 //
 // v0.18 (INF-423). Semantics:
 //   - First-match top-down within a map; evaluated across ALL maps in the
@@ -43,7 +43,7 @@ type NoMatchError struct {
 }
 
 func (e *NoMatchError) Error() string {
-	return fmt.Sprintf("namespace %q matches no rule in any ZitadelScopeMap (fail-closed)", e.Namespace)
+	return fmt.Sprintf("namespace %q matches no rule in any ScopeMap (fail-closed)", e.Namespace)
 }
 
 // ConflictError signals a namespace matched rules in two or more maps.
@@ -53,7 +53,7 @@ type ConflictError struct {
 }
 
 func (e *ConflictError) Error() string {
-	return fmt.Sprintf("namespace %q matches rules in multiple ZitadelScopeMaps %v (fail-closed)", e.Namespace, e.Maps)
+	return fmt.Sprintf("namespace %q matches rules in multiple ScopeMaps %v (fail-closed)", e.Namespace, e.Maps)
 }
 
 // InstanceMismatchError signals the only matching map binds a different instance.
@@ -64,7 +64,7 @@ type InstanceMismatchError struct {
 }
 
 func (e *InstanceMismatchError) Error() string {
-	return fmt.Sprintf("ZitadelScopeMap %q instance %q does not match operator binding %q (fail-closed)",
+	return fmt.Sprintf("ScopeMap %q instance %q does not match operator binding %q (fail-closed)",
 		e.MapName, e.Actual, e.Expected)
 }
 
@@ -74,7 +74,7 @@ type MapNotReadyError struct {
 }
 
 func (e *MapNotReadyError) Error() string {
-	return fmt.Sprintf("ZitadelScopeMap %q matched but has no resolved organization id yet", e.MapName)
+	return fmt.Sprintf("ScopeMap %q matched but has no resolved organization id yet", e.MapName)
 }
 
 // Scope is the resolved Zitadel scope for a namespace.
@@ -124,7 +124,7 @@ func (s *Scope) Hash() string {
 	return hex.EncodeToString(sum[:])[:10]
 }
 
-// Resolver resolves namespaces to scopes from cached ZitadelScopeMap objects.
+// Resolver resolves namespaces to scopes from cached ScopeMap objects.
 type Resolver struct {
 	// Reader is a cache-backed client (the manager's client).
 	Reader client.Reader
@@ -134,13 +134,13 @@ type Resolver struct {
 	Instance string
 	// Synced reports whether the relevant informers have synced.
 	Synced func() bool
-	// Recorder emits Events on ZitadelScopeMap objects (conflicts).
+	// Recorder emits Events on ScopeMap objects (conflicts).
 	Recorder record.EventRecorder
 }
 
 // match is one map's first-matching rule for a namespace.
 type match struct {
-	m    *zitadelv1alpha2.ZitadelScopeMap
+	m    *zitadelv1alpha2.ScopeMap
 	rule *zitadelv1alpha2.ScopeMapRule
 }
 
@@ -154,9 +154,9 @@ func (r *Resolver) Resolve(ctx context.Context, namespace string) (*Scope, error
 		return nil, ErrMapsNotSynced
 	}
 
-	var maps zitadelv1alpha2.ZitadelScopeMapList
+	var maps zitadelv1alpha2.ScopeMapList
 	if err := r.Reader.List(ctx, &maps, client.InNamespace(r.Namespace)); err != nil {
-		return nil, fmt.Errorf("listing ZitadelScopeMaps in %q: %w", r.Namespace, err)
+		return nil, fmt.Errorf("listing ScopeMaps in %q: %w", r.Namespace, err)
 	}
 	if len(maps.Items) == 0 {
 		return nil, nil // passthrough: feature not enabled
@@ -211,7 +211,7 @@ func (r *Resolver) Resolve(ctx context.Context, namespace string) (*Scope, error
 }
 
 // collectMatches gathers each map's first-matching rule (top-down) for the namespace.
-func collectMatches(items []zitadelv1alpha2.ZitadelScopeMap, ns *corev1.Namespace) ([]match, error) {
+func collectMatches(items []zitadelv1alpha2.ScopeMap, ns *corev1.Namespace) ([]match, error) {
 	var matches []match
 	for i := range items {
 		m := &items[i]
@@ -268,15 +268,14 @@ func ruleMatches(rule *zitadelv1alpha2.ScopeMapRule, ns *corev1.Namespace) (bool
 
 // ValidateRule enforces rule invariants:
 //   - exactly one of namespaceSelector / namespaces
-//   - projectId only together with a literal project name
+//
+// project/projectId are both optional in any combination: an ID is
+// authoritative when set, a bare name is resolved/created on first use.
 func ValidateRule(rule *zitadelv1alpha2.ScopeMapRule) error {
 	hasSelector := rule.NamespaceSelector != nil
 	hasLiteral := len(rule.Namespaces) > 0
 	if hasSelector == hasLiteral {
 		return fmt.Errorf("rule %q: exactly one of namespaceSelector or namespaces must be set", rule.Name)
-	}
-	if rule.ProjectId != "" && rule.Project == "" {
-		return fmt.Errorf("rule %q: projectId requires a literal project name", rule.Name)
 	}
 	return nil
 }

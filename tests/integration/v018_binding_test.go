@@ -108,7 +108,7 @@ func TestBinding_ForeignOrgMap_Event(t *testing.T) {
 	orgID, orgName := testOrg(t, ctx)
 	mapName := fmt.Sprintf("v018-foreign-map-%d", ts)
 
-	m := createScopeMap(t, ctx, mapName, zitadelv1alpha2.ZitadelScopeMapSpec{
+	m := createScopeMap(t, ctx, mapName, zitadelv1alpha2.ScopeMapSpec{
 		Instance:       cfg.Domain,
 		Organization:   orgName,
 		OrganizationId: orgID,
@@ -119,7 +119,7 @@ func TestBinding_ForeignOrgMap_Event(t *testing.T) {
 	})
 
 	fakeRecorder := record.NewFakeRecorder(8)
-	rec := &controller.ZitadelScopeMapReconciler{
+	rec := &controller.ScopeMapReconciler{
 		Client:  k8sClient,
 		Zitadel: zitadelClient,
 		Config: &config.Config{
@@ -135,7 +135,7 @@ func TestBinding_ForeignOrgMap_Event(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	var cur zitadelv1alpha2.ZitadelScopeMap
+	var cur zitadelv1alpha2.ScopeMap
 	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(m), &cur); err != nil {
 		t.Fatal(err)
 	}

@@ -20,30 +20,39 @@ type ScopeMapRule struct {
 	// +optional
 	Namespaces []string `json:"namespaces,omitempty"`
 
-	// Project is the Zitadel project name this rule scopes to.
-	// When empty, the rule grants org-scope.
+	// Project is the Zitadel project name this rule scopes to. The project
+	// is created on first use when it does not exist. When both Project and
+	// ProjectId are empty, the rule grants org-scope.
+	// Names are for humans, IDs for machines: when ProjectId is set it is
+	// authoritative and Project is informational.
 	// +optional
 	Project string `json:"project,omitempty"`
 
-	// ProjectId pins the Zitadel project by raw ID.
-	// Only valid together with a literal Project name.
+	// ProjectId pins the Zitadel project by raw ID (authoritative when set;
+	// the project must already exist). May be used with or without a
+	// Project name.
 	// +optional
 	ProjectId string `json:"projectId,omitempty"`
 }
 
-// ZitadelScopeMapSpec defines the desired state of ZitadelScopeMap.
-type ZitadelScopeMapSpec struct {
-	// Instance is the Zitadel instance domain this map applies to.
-	// Must match the operator's binding domain; otherwise the map is
-	// fail-closed with an InstanceMismatch condition.
+// ScopeMapSpec defines the desired state of ScopeMap.
+type ScopeMapSpec struct {
+	// Instance is the operator instance identity this map applies to — the
+	// operator config's instanceAlias, defaulting to its domain. Must match
+	// the serving operator's identity; otherwise the map is fail-closed with
+	// an InstanceMismatch condition.
 	Instance string `json:"instance"`
 
-	// Organization is the Zitadel organization name.
-	Organization string `json:"organization"`
+	// Organization is the Zitadel organization name. Required when
+	// OrganizationId is empty (the map controller resolves the name to an
+	// ID); optional and informational when OrganizationId is set.
+	// +optional
+	Organization string `json:"organization,omitempty"`
 
 	// OrganizationId pins the Zitadel organization by raw ID.
-	// When set, the ID is authoritative; a differing Organization name
-	// is reported as drift via an Event (not an error).
+	// When set, the ID is authoritative; a differing Organization name is
+	// reported as drift (OrganizationNameDrift condition + Event, not an
+	// error). At least one of Organization / OrganizationId must be set.
 	// +optional
 	OrganizationId string `json:"organizationId,omitempty"`
 
@@ -53,8 +62,8 @@ type ZitadelScopeMapSpec struct {
 	Rules []ScopeMapRule `json:"rules"`
 }
 
-// ZitadelScopeMapStatus defines the observed state of ZitadelScopeMap.
-type ZitadelScopeMapStatus struct {
+// ScopeMapStatus defines the observed state of ScopeMap.
+type ScopeMapStatus struct {
 	// Ready indicates the map passed validation (instance match, org resolved).
 	Ready bool `json:"ready,omitempty"`
 
@@ -77,21 +86,21 @@ type ZitadelScopeMapStatus struct {
 // +kubebuilder:printcolumn:name="Organization",type=string,JSONPath=`.spec.organization`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
 
-// ZitadelScopeMap maps tenant namespaces to Zitadel org/project scopes.
+// ScopeMap maps tenant namespaces to Zitadel org/project scopes.
 // Namespaced; only maps in the operator's own namespace are evaluated.
-type ZitadelScopeMap struct {
+type ScopeMap struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ZitadelScopeMapSpec   `json:"spec,omitempty"`
-	Status ZitadelScopeMapStatus `json:"status,omitempty"`
+	Spec   ScopeMapSpec   `json:"spec,omitempty"`
+	Status ScopeMapStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// ZitadelScopeMapList contains a list of ZitadelScopeMap.
-type ZitadelScopeMapList struct {
+// ScopeMapList contains a list of ScopeMap.
+type ScopeMapList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ZitadelScopeMap `json:"items"`
+	Items           []ScopeMap `json:"items"`
 }

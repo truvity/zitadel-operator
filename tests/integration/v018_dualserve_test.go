@@ -33,7 +33,7 @@ func TestDualServe_InstancePin_ForeignInstanceIgnored(t *testing.T) {
 	projectName := fmt.Sprintf("v018-pinproj-%d", ts)
 	createNamespace(t, ctx, nsName, nil)
 
-	createScopeMap(t, ctx, "v018-map-pin", zitadelv1alpha2.ZitadelScopeMapSpec{
+	createScopeMap(t, ctx, "v018-map-pin", zitadelv1alpha2.ScopeMapSpec{
 		Instance:       cfg.Domain,
 		Organization:   orgName,
 		OrganizationId: orgID,

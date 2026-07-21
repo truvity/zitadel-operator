@@ -1,43 +1,68 @@
 package v1alpha2
 
 // LoginPolicyFields contains fields shared between LoginPolicy (org) and DefaultLoginPolicy (instance).
+// Unset (nil) booleans leave the corresponding Zitadel setting unchanged.
 type LoginPolicyFields struct {
-	UserLogin         *bool `json:"userLogin,omitempty"`
-	AllowExternalIdp  *bool `json:"allowExternalIdp,omitempty"`
-	AllowRegister     *bool `json:"allowRegister,omitempty"`
-	ForceMfa          *bool `json:"forceMfa,omitempty"`
+	// UserLogin allows username/password login.
+	UserLogin *bool `json:"userLogin,omitempty"`
+	// AllowExternalIdp allows login through configured external identity providers.
+	AllowExternalIdp *bool `json:"allowExternalIdp,omitempty"`
+	// AllowRegister allows user self-registration.
+	AllowRegister *bool `json:"allowRegister,omitempty"`
+	// ForceMfa requires multi-factor authentication for all users.
+	ForceMfa *bool `json:"forceMfa,omitempty"`
+	// ForceMfaLocalOnly requires MFA only for local (non-IdP) authentication.
 	ForceMfaLocalOnly *bool `json:"forceMfaLocalOnly,omitempty"`
+	// HidePasswordReset hides the password-reset link on the login form.
 	HidePasswordReset *bool `json:"hidePasswordReset,omitempty"`
+	// PasswordlessType enables passwordless (passkey) login.
 	// +kubebuilder:validation:Enum=not_allowed;allowed
 	// +optional
-	PasswordlessType           string `json:"passwordlessType,omitempty"`
-	AllowDomainDiscovery       *bool  `json:"allowDomainDiscovery,omitempty"`
-	IgnoreUnknownUsernames     *bool  `json:"ignoreUnknownUsernames,omitempty"`
-	DefaultRedirectUri         string `json:"defaultRedirectUri,omitempty"`
-	PasswordCheckLifetime      string `json:"passwordCheckLifetime,omitempty"`
+	PasswordlessType string `json:"passwordlessType,omitempty"`
+	// AllowDomainDiscovery enables org discovery by the domain suffix of the login name.
+	AllowDomainDiscovery *bool `json:"allowDomainDiscovery,omitempty"`
+	// IgnoreUnknownUsernames shows the password step even for unknown users (user-enumeration hardening).
+	IgnoreUnknownUsernames *bool `json:"ignoreUnknownUsernames,omitempty"`
+	// DefaultRedirectUri is where users land after login when no app context exists.
+	DefaultRedirectUri string `json:"defaultRedirectUri,omitempty"`
+	// PasswordCheckLifetime is how long a password check stays valid (Go/Zitadel duration string, e.g. "240h").
+	PasswordCheckLifetime string `json:"passwordCheckLifetime,omitempty"`
+	// ExternalLoginCheckLifetime is how long an external IdP login stays valid (duration string).
 	ExternalLoginCheckLifetime string `json:"externalLoginCheckLifetime,omitempty"`
-	MfaInitSkipLifetime        string `json:"mfaInitSkipLifetime,omitempty"`
-	MultiFactorCheckLifetime   string `json:"multiFactorCheckLifetime,omitempty"`
-	SecondFactorCheckLifetime  string `json:"secondFactorCheckLifetime,omitempty"`
+	// MfaInitSkipLifetime is how long users may postpone MFA setup (duration string; "0s" = no skip).
+	MfaInitSkipLifetime string `json:"mfaInitSkipLifetime,omitempty"`
+	// MultiFactorCheckLifetime is how long a multi-factor check stays valid (duration string).
+	MultiFactorCheckLifetime string `json:"multiFactorCheckLifetime,omitempty"`
+	// SecondFactorCheckLifetime is how long a second-factor check stays valid (duration string).
+	SecondFactorCheckLifetime string `json:"secondFactorCheckLifetime,omitempty"`
 }
 
 // LockoutPolicyFields contains fields shared between LockoutPolicy (org) and DefaultLockoutPolicy (instance).
 type LockoutPolicyFields struct {
+	// MaxPasswordAttempts is the number of failed password attempts before
+	// the account is locked. 0 disables password lockout.
 	MaxPasswordAttempts uint32 `json:"maxPasswordAttempts"`
+	// MaxOtpAttempts is the number of failed OTP attempts before the account
+	// is locked. 0 disables OTP lockout.
 	// +optional
 	MaxOtpAttempts uint32 `json:"maxOtpAttempts,omitempty"`
 }
 
 // PasswordComplexityPolicyFields contains fields shared between PasswordComplexityPolicy (org) and DefaultPasswordComplexityPolicy (instance).
 type PasswordComplexityPolicyFields struct {
+	// MinLength is the minimum password length in characters.
 	// +kubebuilder:validation:Minimum=1
 	MinLength uint64 `json:"minLength"`
+	// HasLowercase requires at least one lowercase letter.
 	// +optional
 	HasLowercase bool `json:"hasLowercase,omitempty"`
+	// HasUppercase requires at least one uppercase letter.
 	// +optional
 	HasUppercase bool `json:"hasUppercase,omitempty"`
+	// HasNumber requires at least one digit.
 	// +optional
 	HasNumber bool `json:"hasNumber,omitempty"`
+	// HasSymbol requires at least one symbol character.
 	// +optional
 	HasSymbol bool `json:"hasSymbol,omitempty"`
 }

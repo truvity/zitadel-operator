@@ -75,7 +75,12 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 		"operatorNamespace", cfg.OperatorNamespace,
 	)
 
-	// Read JWT key from file.
+	// Read JWT key from file (fail fast on a missing path rather than a
+	// confusing 'open : no such file' later).
+	if cfg.KeyFile == "" {
+		setupLog.Error(nil, "config keyFile is required (path to the mounted JWT key JSON)")
+		os.Exit(1)
+	}
 	keyJSON, err := os.ReadFile(cfg.KeyFile)
 	if err != nil {
 		setupLog.Error(err, "unable to read key file", "path", cfg.KeyFile)
@@ -135,7 +140,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 
 	// v0.18 scope maps (INF-423) + internal delegation (INF-425): active when
-	// the operator namespace is known. With zero ZitadelScopeMap objects the
+	// the operator namespace is known. With zero ScopeMap objects the
 	// resolver is passthrough (legacy binding-client behavior).
 	var scopeResolver *scopemap.Resolver
 	var delegationMgr *delegation.Manager
@@ -154,7 +159,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 		scopeResolver = &scopemap.Resolver{
 			Reader:    mgr.GetClient(),
 			Namespace: cfg.OperatorNamespace,
-			Instance:  cfg.Domain,
+			Instance:  cfg.InstanceIdentity(),
 			Synced:    synced.Load,
 			Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"),
 		}
@@ -185,16 +190,16 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 			setupLog.Error(err, "unable to add delegation GC runnable")
 			os.Exit(1)
 		}
-		if err := (&controller.ZitadelScopeMapReconciler{
+		if err := (&controller.ScopeMapReconciler{
 			Client:    mgr.GetClient(),
 			Zitadel:   zitadelClient,
 			Config:    cfg,
-			Instance:  cfg.Domain,
+			Instance:  cfg.InstanceIdentity(),
 			Namespace: cfg.OperatorNamespace,
-			Recorder:  mgr.GetEventRecorderFor("zitadelscopemap"),
+			Recorder:  mgr.GetEventRecorderFor("scopemap"),
 			GC:        gc,
 		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ZitadelScopeMap")
+			setupLog.Error(err, "unable to create controller", "controller", "ScopeMap")
 			os.Exit(1)
 		}
 		setupLog.Info("v0.18 scope maps enabled", "operatorNamespace", cfg.OperatorNamespace)

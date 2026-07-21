@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// minimalOperatorNS is appended to fixtures that do not exercise the
+// operatorNamespace fail-fast themselves.
+const minimalOperatorNS = "operatorNamespace: op-ns\n"
+
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -29,6 +33,7 @@ operatorNamespace: zitadel-operator
 watchNamespaces:
   - ns1
   - ns2
+  - zitadel-operator
 `)
 
 	cfg, err := Load(path)
@@ -54,13 +59,13 @@ watchNamespaces:
 	if cfg.OperatorNamespace != "zitadel-operator" {
 		t.Errorf("operatorNamespace: got %q", cfg.OperatorNamespace)
 	}
-	if len(cfg.WatchNamespaces) != 2 || cfg.WatchNamespaces[0] != "ns1" {
+	if len(cfg.WatchNamespaces) != 3 || cfg.WatchNamespaces[0] != "ns1" {
 		t.Errorf("watchNamespaces: got %v", cfg.WatchNamespaces)
 	}
 }
 
 func TestLoad_DefaultPort(t *testing.T) {
-	path := writeConfig(t, "domain: x.cloud\nbinding: org-owner\n")
+	path := writeConfig(t, "domain: x.cloud\nbinding: org-owner\n"+minimalOperatorNS)
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -75,7 +80,7 @@ func TestLoad_DefaultPort(t *testing.T) {
 }
 
 func TestLoad_MissingDomain(t *testing.T) {
-	path := writeConfig(t, "port: '443'\nbinding: iam-owner\n")
+	path := writeConfig(t, "port: '443'\nbinding: iam-owner\n"+minimalOperatorNS)
 
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected error for missing domain")
@@ -83,7 +88,7 @@ func TestLoad_MissingDomain(t *testing.T) {
 }
 
 func TestLoad_MissingBinding(t *testing.T) {
-	path := writeConfig(t, "domain: x.cloud\n")
+	path := writeConfig(t, "domain: x.cloud\n"+minimalOperatorNS)
 
 	_, err := Load(path)
 	if err == nil {
@@ -95,7 +100,7 @@ func TestLoad_MissingBinding(t *testing.T) {
 }
 
 func TestLoad_InvalidBinding(t *testing.T) {
-	path := writeConfig(t, "domain: x.cloud\nbinding: superuser\n")
+	path := writeConfig(t, "domain: x.cloud\nbinding: superuser\n"+minimalOperatorNS)
 
 	_, err := Load(path)
 	if err == nil {
@@ -114,8 +119,8 @@ func TestLoad_RemovedKeysFailFast(t *testing.T) {
 		name    string
 		content string
 	}{
-		{"defaultOrganizationId", "domain: x.cloud\nbinding: iam-owner\ndefaultOrganizationId: \"123\"\n"},
-		{"projectScopeLabel", "domain: x.cloud\nbinding: iam-owner\nprojectScopeLabel: team\n"},
+		{"defaultOrganizationId", "domain: x.cloud\nbinding: iam-owner\ndefaultOrganizationId: \"123\"\n" + minimalOperatorNS},
+		{"projectScopeLabel", "domain: x.cloud\nbinding: iam-owner\nprojectScopeLabel: team\n" + minimalOperatorNS},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -141,6 +146,34 @@ func TestLoad_OperatorNamespaceFromEnv(t *testing.T) {
 	}
 	if cfg.OperatorNamespace != "pod-ns-fallback" {
 		t.Errorf("operatorNamespace fallback: got %q", cfg.OperatorNamespace)
+	}
+}
+
+// TestLoad_OperatorNamespaceUndeterminable is the v0.18 fail-permissive-gap
+// fix: an undeterminable operator namespace refuses to start instead of
+// silently disabling scope maps.
+func TestLoad_OperatorNamespaceUndeterminable(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "")
+	path := writeConfig(t, "domain: x.cloud\nbinding: iam-owner\n")
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected fail-fast when operatorNamespace is undeterminable")
+	}
+	if !strings.Contains(err.Error(), "operatorNamespace") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoad_WatchNamespacesMustIncludeOperatorNamespace(t *testing.T) {
+	path := writeConfig(t, "domain: x.cloud\nbinding: iam-owner\noperatorNamespace: op-ns\nwatchNamespaces:\n  - other-ns\n")
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected fail-fast when watchNamespaces omits the operator namespace")
+	}
+	if !strings.Contains(err.Error(), "watchNamespaces must include") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
