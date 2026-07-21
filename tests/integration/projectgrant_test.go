@@ -25,7 +25,8 @@ func TestProjectGrant_Lifecycle(t *testing.T) {
 	proj := &zitadelv1alpha2.Project{
 		ObjectMeta: metav1.ObjectMeta{Name: projName, Namespace: "default"},
 		Spec: zitadelv1alpha2.ProjectSpec{
-			Roles: []string{"viewer"},
+			OrganizationId: testOrgID,
+			Roles:          []string{"viewer"},
 		},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {
@@ -53,9 +54,10 @@ func TestProjectGrant_Lifecycle(t *testing.T) {
 	pg := &zitadelv1alpha2.ProjectGrant{
 		ObjectMeta: metav1.ObjectMeta{Name: grantName, Namespace: "default"},
 		Spec: zitadelv1alpha2.ProjectGrantSpec{
-			ProjectRef:    &zitadelv1alpha2.ResourceRef{Name: projName},
-			GrantedOrgRef: &zitadelv1alpha2.ResourceRef{Name: orgName},
-			RoleKeys:      []string{"viewer"},
+			OrganizationId: testOrgID,
+			ProjectRef:     &zitadelv1alpha2.ResourceRef{Name: projName},
+			GrantedOrgRef:  &zitadelv1alpha2.ResourceRef{Name: orgName},
+			RoleKeys:       []string{"viewer"},
 		},
 	}
 	if err := k8sClient.Create(ctx, pg); err != nil {

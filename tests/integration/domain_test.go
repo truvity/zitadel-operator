@@ -23,7 +23,8 @@ func TestDomain_Lifecycle(t *testing.T) {
 	dom := &zitadelv1alpha2.Domain{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Spec: zitadelv1alpha2.DomainSpec{
-			DomainName: fmt.Sprintf("test-%d.example.org", ts),
+			OrganizationId: testOrgID,
+			DomainName:     fmt.Sprintf("test-%d.example.org", ts),
 		},
 	}
 	if err := k8sClient.Create(ctx, dom); err != nil {

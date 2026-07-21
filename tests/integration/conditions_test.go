@@ -56,6 +56,7 @@ func TestOIDCApp_RefNotReady_ThenResolves(t *testing.T) {
 	// Now create the Project — the OIDCApp should eventually resolve.
 	proj := &zitadelv1alpha2.Project{
 		ObjectMeta: metav1.ObjectMeta{Name: projName, Namespace: "default"},
+		Spec:       zitadelv1alpha2.ProjectSpec{OrganizationId: testOrgID},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {
 		t.Fatalf("creating Project: %v", err)
@@ -99,6 +100,7 @@ func TestProject_ConditionsOnSuccess(t *testing.T) {
 
 	proj := &zitadelv1alpha2.Project{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec:       zitadelv1alpha2.ProjectSpec{OrganizationId: testOrgID},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {
 		t.Fatalf("creating Project: %v", err)
@@ -145,8 +147,9 @@ func TestMachineUser_IdempotentReconcile(t *testing.T) {
 	mu := &zitadelv1alpha2.MachineUser{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Spec: zitadelv1alpha2.MachineUserSpec{
-			UserName:     userName,
-			KeySecretRef: zitadelv1alpha2.MachineKeySecretRef{Name: secretName},
+			OrganizationId: testOrgID,
+			UserName:       userName,
+			KeySecretRef:   zitadelv1alpha2.MachineKeySecretRef{Name: secretName},
 		},
 	}
 	if err := k8sClient.Create(ctx, mu); err != nil {
@@ -209,6 +212,7 @@ func TestOIDCApp_DeletedExternally(t *testing.T) {
 	// Create Project.
 	proj := &zitadelv1alpha2.Project{
 		ObjectMeta: metav1.ObjectMeta{Name: projName, Namespace: "default"},
+		Spec:       zitadelv1alpha2.ProjectSpec{OrganizationId: testOrgID},
 	}
 	if err := k8sClient.Create(ctx, proj); err != nil {
 		t.Fatalf("creating Project: %v", err)

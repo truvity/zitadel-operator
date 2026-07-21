@@ -29,8 +29,9 @@ func TestMachineUser_Lifecycle(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: zitadelv1alpha2.MachineUserSpec{
-			UserName:    userName,
-			Description: "integration test machine user",
+			OrganizationId: testOrgID,
+			UserName:       userName,
+			Description:    "integration test machine user",
 			KeySecretRef: zitadelv1alpha2.MachineKeySecretRef{
 				Name: secretName,
 			},

@@ -23,11 +23,12 @@ func TestIdentityProvider_Lifecycle(t *testing.T) {
 	idpCR := &zitadelv1alpha2.IdentityProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 		Spec: zitadelv1alpha2.IdentityProviderSpec{
-			Name:         fmt.Sprintf("Test OIDC IDP %d", ts),
-			Issuer:       "https://accounts.google.com",
-			ClientId:     fmt.Sprintf("test-client-%d", ts),
-			ClientSecret: "test-secret-value",
-			Scopes:       []string{"openid", "profile", "email"},
+			OrganizationId: testOrgID,
+			Name:           fmt.Sprintf("Test OIDC IDP %d", ts),
+			Issuer:         "https://accounts.google.com",
+			ClientId:       fmt.Sprintf("test-client-%d", ts),
+			ClientSecret:   "test-secret-value",
+			Scopes:         []string{"openid", "profile", "email"},
 		},
 	}
 	if err := k8sClient.Create(ctx, idpCR); err != nil {

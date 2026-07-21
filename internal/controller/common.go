@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
-	"github.com/truvity/zitadel-operator/internal/config"
 )
 
 const (
@@ -75,9 +74,10 @@ func generationChangedPredicate() predicate.Predicate {
 	return predicate.GenerationChangedPredicate{}
 }
 
-// resolveOrganizationId resolves the organization ID from either an OrganizationRef,
-// an explicit OrganizationId, or the operator's default organization ID.
-func resolveOrganizationId(ctx context.Context, k8s client.Client, cfg *config.Config, ref *zitadelv1alpha2.ResourceRef, explicitID, sourceNamespace string) (string, error) {
+// resolveOrganizationId resolves the organization ID from either an
+// OrganizationRef or an explicit OrganizationId (v0.18 removed the config
+// default-org fallback).
+func resolveOrganizationId(ctx context.Context, k8s client.Client, ref *zitadelv1alpha2.ResourceRef, explicitID, sourceNamespace string) (string, error) {
 	if ref != nil && explicitID != "" {
 		return "", fmt.Errorf("organizationRef and organizationId are mutually exclusive")
 	}
@@ -101,11 +101,7 @@ func resolveOrganizationId(ctx context.Context, k8s client.Client, cfg *config.C
 		return org.Status.OrganizationId, nil
 	}
 
-	if cfg.DefaultOrganizationId != "" {
-		return cfg.DefaultOrganizationId, nil
-	}
-
-	return "", fmt.Errorf("no organization specified: set organizationRef, organizationId, or configure defaultOrganizationId")
+	return "", fmt.Errorf("no organization specified: set organizationRef or organizationId (v0.18 removed defaultOrganizationId; namespaces routed by a ZitadelScopeMap inherit the scope's organization)")
 }
 
 // resolveProjectId resolves the project ID from either a ProjectRef or explicit ProjectId.
@@ -183,13 +179,18 @@ type singletonCandidate struct {
 
 // checkSingletonConflict determines if this CR should yield to an earlier-created CR of the same kind.
 // Returns true if the CR is a duplicate (conditions and ready status updated), false if it should proceed.
+// CreationTimestamp has 1s granularity, so equal timestamps are tie-broken by
+// namespace/name ordering to keep the winner deterministic.
 func checkSingletonConflict(cr client.Object, candidates []singletonCandidate, conditions *[]metav1.Condition, ready *bool, kindName string) bool {
 	crTime := cr.GetCreationTimestamp()
 	for _, other := range candidates {
 		if other.UID == cr.GetUID() {
 			continue
 		}
-		if other.CreationTimestamp.Before(&crTime) && !other.IsDeleting {
+		earlier := other.CreationTimestamp.Before(&crTime) ||
+			(other.CreationTimestamp.Equal(&crTime) &&
+				other.Namespace+"/"+other.Name < cr.GetNamespace()+"/"+cr.GetName())
+		if earlier && !other.IsDeleting {
 			setCondition(conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
 				fmt.Sprintf("another %s %s/%s (created earlier) is already managing this instance singleton", kindName, other.Namespace, other.Name))
 			*ready = false
