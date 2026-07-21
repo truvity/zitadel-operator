@@ -1,3 +1,7 @@
+# Documentation: https://github.com/truvity/zitadel-operator/blob/master/docs/install/helm.md
+# Config key semantics: docs/install/configuration.md
+# Binding choice (iam-owner vs org-owner): docs/install/binding-levels.md
+
 image:
   repository: ghcr.io/truvity/zitadel-operator/operator
   tag: ""

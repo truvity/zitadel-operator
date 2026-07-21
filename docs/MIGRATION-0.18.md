@@ -4,8 +4,10 @@ v0.18 replaces the two implicit routing mechanisms (`defaultOrganizationId`,
 `projectScopeLabel`) with an explicit, delegable, fail-closed model:
 **scope maps** (`ZitadelScopeMap`) route tenant namespaces to Zitadel scopes,
 and the operator reconciles each mapped namespace with an internally minted,
-scope-limited credential (**internal delegation**). Design:
-`docs/DESIGN.md` § "v0.18 Extension — Scope Maps & Internal Delegation".
+scope-limited credential (**internal delegation**). How it works:
+[Scope resolution](architecture/scope-resolution.md) and
+[Internal delegation](architecture/delegation.md); decision history:
+[v0.18 design record](design/2026-07-v018-scope-maps.md).
 
 ## Breaking configuration changes
 

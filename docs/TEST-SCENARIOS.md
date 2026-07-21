@@ -1,4 +1,4 @@
-b# Zitadel Operator — E2E Test Scenarios
+# Zitadel Operator — E2E Test Scenarios
 
 **Purpose:** Comprehensive test scenarios for REPL-style development. Each scenario validates a specific behavior end-to-end: CR applied → operator reconciles → Zitadel state verified → K8s state verified.
 
@@ -27,10 +27,9 @@ b# Zitadel Operator — E2E Test Scenarios
 - Delete Org CR
 - **Expect:** Org deleted in Zitadel (cascades all children there), child CRs (Project, OIDCApp) go to error state on next reconcile with condition = "organization not found"
 
-### S-005: Organization CR with operator default org
-- Operator config has `defaultOrganizationId` set
-- Apply a Project CR without `organizationRef` or `organizationId`
-- **Expect:** Project created in the default org
+### S-005: Organization CR with operator default org — RETIRED in v0.18
+- Relied on the removed `defaultOrganizationId` config key (INF-428); the
+  scope-defaulted equivalent is covered by S-225 (scope supplies the org/project)
 
 ### S-006: Invalid organizationId (non-existent)
 - Apply Project CR with `organizationId: "999999999"`
