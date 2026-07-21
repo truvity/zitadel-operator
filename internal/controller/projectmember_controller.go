@@ -46,7 +46,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if isRefNotReady(err) {
 			logger.Info("waiting for organization ref to become ready", "error", err)
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "OrgNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
+			_ = applyStatus(ctx, r.Client, r.Config, &cr)
 			return ctrl.Result{RequeueAfter: requeueOnError}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
@@ -61,7 +61,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if isRefNotReady(err) {
 			logger.Info("waiting for project ref to become ready", "error", err)
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "ProjectNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
+			_ = applyStatus(ctx, r.Client, r.Config, &cr)
 			return ctrl.Result{RequeueAfter: requeueOnError}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
@@ -73,7 +73,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if isRefNotReady(err) {
 			logger.Info("waiting for user ref to become ready", "error", err)
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "UserNotReady", err.Error())
-			_ = r.Status().Update(ctx, &cr)
+			_ = applyStatus(ctx, r.Client, r.Config, &cr)
 			return ctrl.Result{RequeueAfter: requeueOnError}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving user: %w", err)
@@ -105,7 +105,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// Status.
 	statusChanged := false // no ID fields beyond ready
-	if err := markReady(ctx, r.Client, &cr, statusFields{
+	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged); err != nil {
 		return ctrl.Result{}, err

@@ -45,6 +45,28 @@ func waitForDeletion(t *testing.T, ctx context.Context, key client.ObjectKey, ob
 	t.Fatalf("timeout waiting for %s/%s to be deleted", key.Namespace, key.Name)
 }
 
+// cleanupResource deletes the object (best-effort) and waits for it to be gone.
+// Intended for t.Cleanup so tests remove their Zitadel-side state via finalizers.
+func cleanupResource(t *testing.T, obj client.Object) {
+	t.Helper()
+	ctx := context.Background()
+	if err := k8sClient.Delete(ctx, obj); err != nil {
+		if !errors.IsNotFound(err) {
+			t.Logf("cleanup delete %T %s/%s: %v", obj, obj.GetNamespace(), obj.GetName(), err)
+		}
+		return
+	}
+	key := client.ObjectKeyFromObject(obj)
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := k8sClient.Get(ctx, key, obj); errors.IsNotFound(err) {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Logf("cleanup timeout waiting for %s/%s deletion", key.Namespace, key.Name)
+}
+
 // isReady checks Status.Ready for all v1alpha2 types.
 func isReady(obj client.Object) bool {
 	switch o := obj.(type) {

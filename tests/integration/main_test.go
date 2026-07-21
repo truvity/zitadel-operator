@@ -30,6 +30,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/zalando/go-keyring"
+	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/controller"
@@ -50,6 +51,11 @@ var (
 
 	// mgrCancel stops the shared manager.
 	mgrCancel context.CancelFunc
+
+	// testOrgID is the Zitadel org the binding credential belongs to.
+	// v0.18 removes defaultOrganizationId, so tests that need a pre-existing
+	// org reference it explicitly.
+	testOrgID string
 )
 
 func TestMain(m *testing.M) {
@@ -100,6 +106,16 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// Resolve the binding credential's own org — used by tests that need a
+	// pre-existing org ID (defaultOrganizationId is removed in v0.18).
+	myOrg, err := zitadelClient.Management().GetMyOrg(ctx, &management.GetMyOrgRequest{}) //nolint:staticcheck // SA1019: v1 Management API
+	if err != nil {
+		slog.Error("failed to resolve binding org", slog.Any("error", err))
+		os.Exit(1)
+	}
+	testOrgID = myOrg.GetOrg().GetId()
+	slog.Info("resolved test org", slog.String("orgId", testOrgID))
+
 	// Start shared envtest environment.
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
@@ -135,6 +151,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.OrganizationReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup OrganizationReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -179,6 +196,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.ActionTargetReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup ActionTargetReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -187,6 +205,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.ActionExecutionReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup ActionExecutionReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -285,6 +304,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultLoginPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultLoginPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -293,6 +313,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultDomainPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultDomainPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -301,6 +322,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.GoogleIdPReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup GoogleIdPReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -336,6 +358,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.EmailProviderReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup EmailProviderReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -362,6 +385,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.InstanceMemberReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup InstanceMemberReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -397,6 +421,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.SmsProviderReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup SmsProviderReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -405,6 +430,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.GitHubIdPReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup GitHubIdPReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -413,6 +439,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultLockoutPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultLockoutPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -421,6 +448,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultPasswordComplexityPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultPasswordComplexityPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -429,6 +457,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultPasswordAgePolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultPasswordAgePolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -437,6 +466,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultNotificationPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultNotificationPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -445,6 +475,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultLabelPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultLabelPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -453,6 +484,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultPrivacyPolicyReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultPrivacyPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -461,6 +493,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultOIDCSettingsReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultOIDCSettingsReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -478,6 +511,7 @@ func TestMain(m *testing.M) {
 	if err := (&controller.DefaultMessageTextReconciler{
 		Client:  mgr.GetClient(),
 		Zitadel: zitadelClient,
+		Config:  cfg,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DefaultMessageTextReconciler", slog.Any("error", err))
 		os.Exit(1)

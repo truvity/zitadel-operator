@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	objectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
@@ -23,6 +24,7 @@ import (
 type OrganizationReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
+	Config  *config.Config
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=organizations,verbs=get;list;watch;create;update;patch;delete
@@ -75,7 +77,7 @@ func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		cr.Status.Ready = true
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionTrue, "Reconciled", "Successfully synced with Zitadel")
 		cr.Status.LastSyncTime = &now
-		if err := r.Status().Update(ctx, &cr); err != nil {
+		if err := applyStatus(ctx, r.Client, r.Config, &cr); err != nil {
 			return ctrl.Result{}, err
 		}
 	}

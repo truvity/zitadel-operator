@@ -45,7 +45,7 @@ func (r *APIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Resolve project ID (and inherited org ID).
 	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
 	if err != nil {
-		if waiting, result := waitForRef(ctx, r.Client, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving project: %w", err)
@@ -77,7 +77,7 @@ func (r *APIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	appID, clientID, clientSecret, err := r.findOrCreateApp(ctx, projectID, displayName, &cr)
 	if err != nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "CreateFailed", err.Error())
-		_ = r.Status().Update(ctx, &cr)
+		_ = applyStatus(ctx, r.Client, r.Config, &cr)
 		return ctrl.Result{}, err
 	}
 
@@ -111,7 +111,7 @@ func (r *APIAppReconciler) updateStatusIfNeeded(ctx context.Context, cr *zitadel
 	cr.Status.ClientId = clientID
 	cr.Status.ProjectId = projectID
 	cr.Status.OrganizationId = inheritedOrgID
-	return markReady(ctx, r.Client, cr, statusFields{
+	return markReady(ctx, r.Client, r.Config, cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged)
 }

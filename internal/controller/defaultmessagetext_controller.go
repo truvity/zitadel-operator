@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
+	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/admin"
@@ -19,6 +20,7 @@ import (
 type DefaultMessageTextReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
+	Config  *config.Config
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=defaultmessagetexts,verbs=get;list;watch;create;update;patch;delete
@@ -63,7 +65,7 @@ func (r *DefaultMessageTextReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	// Status.
-	if err := markReady(ctx, r.Client, &cr, statusFields{
+	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, false); err != nil {
 		return ctrl.Result{}, err
@@ -89,7 +91,7 @@ func (r *DefaultMessageTextReconciler) checkConflict(ctx context.Context, cr *zi
 			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "DuplicateSingleton",
 				fmt.Sprintf("another DefaultMessageText %s/%s (created earlier) is already managing type=%s language=%s", other.Namespace, other.Name, other.Spec.Type, other.Spec.Language))
 			cr.Status.Ready = false
-			_ = r.Status().Update(ctx, cr)
+			_ = applyStatus(ctx, r.Client, r.Config, cr)
 			return true
 		}
 	}

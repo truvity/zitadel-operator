@@ -80,7 +80,7 @@ func (r *LabelPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Status.
 	statusChanged := cr.Status.OrganizationId != orgID
 	cr.Status.OrganizationId = orgID
-	if err := markReady(ctx, r.Client, &cr, statusFields{
+	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged); err != nil {
 		return ctrl.Result{}, err
