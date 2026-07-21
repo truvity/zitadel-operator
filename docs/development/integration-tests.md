@@ -64,3 +64,31 @@ Conventions that keep the suite stable:
 - Assert on **conditions and reasons**, not log output.
 - Out-of-band assertions go through `zitadelClient` (e.g. the actor proof lists Zitadel events); out-of-band mutations (deleting an app behind the operator's back) are how drift/self-healing scenarios are built.
 - Anything that needs a second SSA writer or a second manager builds it from `testRestCfg` (see S-241 / S-270 for the pattern).
+
+## Test-instance hygiene
+
+The suite runs against a shared, dedicated Zitadel test instance. Aborted
+runs (Ctrl-C, failures before `t.Cleanup` registration, crashes) leak
+uniquely named orgs/projects/users, and instance-level IdP providers are only
+deactivated — never deleted — by their controllers.
+
+The harness enforces hygiene automatically:
+
+- **After a fully successful run** (`m.Run()` exit code 0), `TestMain`
+  sweeps the instance for stale test resources (`sweepStaleTestResources` in
+  `hygiene_test.go`) and logs a summary
+  (`orgs=… projects=… users=… idpProviders=…`).
+- **After a failed run the sweep is skipped** — everything is preserved so
+  the failure can be debugged against the real state. The next green run (or
+  a manual sweep) cleans it up.
+
+Staleness is name-based and conservative: known batch prefixes (`proto018-`,
+`v018-`) or the unix-milli timestamp segment every test name embeds
+(`…-1784654…`). The binding SA, the default org, `Truvity Testing` and any
+human-named resource never match.
+
+Manual sweep (historical bloat, post-failure cleanup):
+
+```bash
+V018_HYGIENE=1 go test -tags=integration -run TestHygiene_Sweep ./tests/integration/ -count=1 -v
+```
