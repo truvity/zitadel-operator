@@ -8,21 +8,17 @@ metadata:
 data:
   config.yaml: |
     domain: {{ .Values.config.domain | quote }}
+    binding: {{ required "config.binding is required (iam-owner or org-owner)" .Values.config.binding | quote }}
     port: {{ .Values.config.port | quote }}
     insecure: {{ .Values.config.insecure }}
     {{- if .Values.config.externalDomain }}
     externalDomain: {{ .Values.config.externalDomain | quote }}
     {{- end }}
     keyFile: {{ .Values.credentials.mountPath }}/{{ .Values.credentials.key }}
-    {{- if .Values.config.defaultOrganizationId }}
-    defaultOrganizationId: {{ .Values.config.defaultOrganizationId | quote }}
-    {{- end }}
+    operatorNamespace: {{ .Values.config.operatorNamespace | default .Release.Namespace | quote }}
     {{- if .Values.config.watchNamespaces }}
     watchNamespaces:
       {{- range .Values.config.watchNamespaces }}
       - {{ . | quote }}
       {{- end }}
-    {{- end }}
-    {{- if .Values.config.projectScopeLabel }}
-    projectScopeLabel: {{ .Values.config.projectScopeLabel | quote }}
     {{- end }}

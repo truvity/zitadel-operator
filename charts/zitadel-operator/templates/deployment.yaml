@@ -30,7 +30,10 @@ spec:
             - --config=/etc/zitadel-operator/config.yaml
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect=true
+            {{- else }}
+            - --leader-elect=false
             {{- end }}
+            - --leader-election-id={{ include "zitadel-operator.fullname" . }}
           ports:
             - name: metrics
               containerPort: 8080
