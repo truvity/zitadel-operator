@@ -74,6 +74,8 @@ func isReady(obj client.Object) bool {
 		return o.Status.Ready
 	case *zitadelv1alpha2.Project:
 		return o.Status.Ready
+	case *zitadelv1alpha2.ProjectRole:
+		return o.Status.Ready
 	case *zitadelv1alpha2.OIDCApp:
 		return o.Status.Ready
 	case *zitadelv1alpha2.APIApp:
