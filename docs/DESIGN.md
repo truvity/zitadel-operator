@@ -15,6 +15,7 @@
 7. [Hot-Loop Fix (INF-362)](#hot-loop-fix-inf-362)
 8. [Migration Path](#migration-path)
 9. [Implementation Phases](#implementation-phases)
+10. [v0.18 Extension — Scope Maps & Internal Delegation](#v018-extension--scope-maps--internal-delegation)
 
 ---
 
@@ -1259,3 +1260,188 @@ Only one CR of each Default* kind should manage the instance at any time. If mul
 For `DefaultMessageText`, uniqueness is scoped per `(type, language)` pair rather than globally per kind, since multiple message types can coexist.
 
 This prevents conflicting controllers from fighting over the same singleton resource and provides clear status feedback about which CR is active.
+
+---
+
+## v0.18 Extension — Scope Maps & Internal Delegation
+
+**Tickets:** INF-422 (umbrella), INF-423–428, INF-435
+**Status:** Design final (2026-07-21); prototyped on `proto/v018-scope-maps` (12/12 integration green, see `docs/research/proto-v018-findings.md`)
+**Breaking:** Yes (config keys removed — see [Breaking Changes](#breaking-changes-v017--v018))
+
+v0.18 replaces the two implicit routing mechanisms (`defaultOrganizationId`, `projectScopeLabel`) with an explicit, delegable, fail-closed model: **scope maps** route tenant namespaces to Zitadel scopes, and the operator reconciles each namespace with an internally minted, scope-limited credential (**internal delegation**). Comparative research behind the shape of the routing surface: `docs/research/operator-config-patterns.md`.
+
+### Binding Levels
+
+One operator = one Zitadel instance + one credential, as before. New in v0.18, the config asserts what that credential is:
+
+```yaml
+# /etc/zitadel-operator/config.yaml
+domain: zitadel-internal.example.com
+binding: iam-owner        # iam-owner | org-owner (required)
+keyFile: /etc/zitadel/key.json
+```
+
+At startup the operator verifies the assertion against the credential's actual memberships (`AuthService.ListMyMemberships` — SDK-proven, no raw HTTP). Mismatch = crash early, before any reconcile.
+
+Degradation under `org-owner` is uniform, not per-feature:
+
+| Operation | `iam-owner` | `org-owner` |
+| --- | --- | --- |
+| Scope map for the bound org | honored | honored |
+| Scope map for a foreign org | honored | rejected (Event on the map) |
+| Org-creating / instance-level paths | honored | `NotSupportedAtBindingLevel` condition on affected CRs |
+
+One validation matrix (binding level × scope shape); no special cases sprinkled through reconcilers.
+
+### ZitadelScopeMap CRD
+
+`ZitadelScopeMap` is a **namespaced CRD** (`zitadel.truvity.io/v1alpha2`). Only maps in the **operator's own namespace** are evaluated — the map's location is part of its authority. It is deliberately *not* a ConfigMap: the comparative research (ArgoCD, Keycloak, ESO, Capsule, Crossplane — see `docs/research/operator-config-patterns.md`) found zero precedent for ConfigMap-based semantic routing, and a CRD buys OpenAPI validation, a status subresource, printer columns, and per-object RBAC.
+
+**Delegation model:** admins create a company's map; that company's platform team maintains it via K8s RBAC `resourceNames` (update/patch on the named map). `resourceNames` cannot gate `create` ([kubernetes#80295](https://github.com/kubernetes/kubernetes/issues/80295)) — so map creation stays admin-only, which is exactly the intended trust split.
+
+Reference example — two maps in the operator namespace:
+
+```yaml
+# Map 1: selector rules — routes by GitOps-stamped namespace label facts
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: ZitadelScopeMap
+metadata:
+  name: acme-corp
+  namespace: zitadel-operator          # must be the operator's namespace
+spec:
+  instance: zitadel-internal.example.com   # REQUIRED: instance assertion
+  organization: Acme Corp
+  organizationId: "325908855630427886"     # optional; authoritative when set
+  rules:
+    - name: acme-product-namespaces
+      namespaceSelector:
+        matchLabels:
+          tenancy.truvity.io/company: acme
+      project: acme-platform               # project scope → (org, project)
+    - name: acme-org-wide
+      namespaceSelector:
+        matchExpressions:
+          - key: tenancy.truvity.io/acme-org-scope
+            operator: In
+            values: ["true"]
+      # no project → org scope
+---
+# Map 2: literal rules — pin exact namespaces, optionally pin project by ID
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: ZitadelScopeMap
+metadata:
+  name: testing-org
+  namespace: zitadel-operator
+spec:
+  instance: zitadel-internal.example.com
+  organization: Truvity Testing
+  rules:
+    - name: ci
+      namespaces: [ci, url-shortener-ci]
+      project: ci-shared
+      projectId: "326225093250303536"      # only valid with a literal project name
+```
+
+Field semantics:
+
+- **`spec.instance` (required)** — every map asserts which instance it belongs to. A map whose instance does not match the operator's binding domain gets `InstanceMatch=False` / reason `InstanceMismatch` and is fail-closed for every namespace it would serve. This is the guard against a map file landing in the wrong operator's namespace.
+- **`spec.organization` + optional `spec.organizationId`** — the ID is **authoritative when present**; a disagreeing name is drift, reported via a non-fatal `OrganizationNameDrift` Event. Without an ID, the map controller resolves the name and records `status.resolvedOrganizationId` (keeping the resolver free of Zitadel calls). A matched map without a resolved org is `ScopeMapNotReady` — transient, not a rejection.
+- **`rules[]`** — ordered; first match top-down within a map; evaluated across all maps in the operator namespace (maps sorted by name for determinism). Each rule: `namespaceSelector` XOR `namespaces[]`; optional `project` (+ `projectId`, literal rules only). No project = org scope.
+- **Name↔org containment** — the map name structurally identifies the org it serves, which is what makes `resourceNames`-based delegation meaningful.
+
+**Namespace labels are facts, not routing config.** Labels consumed by selectors are GitOps-stamped, orthogonal keys (`company`, `customer`, `tier`; boolean opt-in-style keys are also fine). The scope maps interpret label facts; tenant teams never self-serve their own labels. Routing authority lives in the maps (operator namespace, admin/platform controlled) — never in data the routed tenant controls. That inversion is the Capsule CVE-2025-55205 lesson.
+
+### Resolution Taxonomy
+
+Scope resolution for a tenant CR's namespace returns exactly one of:
+
+| Outcome | Meaning | Behavior |
+| --- | --- | --- |
+| resolved `Scope` | one rule matched | reconcile with the delegated client |
+| passthrough | **zero maps exist** | legacy binding-client path (feature off) |
+| `MapsNotSynced` | informers not synced yet | wait + short requeue — never a permanent reject |
+| `NoMatchingRule` | maps exist, none matched | fail-closed, `ScopeResolved=False` |
+| `ScopeConflict` | namespace matches rules in ≥2 maps | fail-closed; Warning Events on **both** maps |
+| `InstanceMismatch` | only matching map binds a foreign instance | fail-closed |
+| `ScopeMapNotReady` | matched map has no resolved org yet | transient, requeue |
+
+Distinguishing `MapsNotSynced` from `NoMatchingRule` is mandatory — collapsing them turns every operator restart into a spurious rejection storm.
+
+**Zero maps = passthrough (rollout gate).** A prototype-forced correction: with strict fail-closed from the first moment, installing the CRD would be a flag-day for every namespace the operator serves. No `ZitadelScopeMap` objects → the operator behaves exactly as v0.17 (all pre-v0.18 suites pass unchanged). Strictness begins when the first map appears. An explicit GA enablement story (config flag vs. this gate alone) is settled before release.
+
+**Scope-defaulted project.** A project-scope rule creates/pins the project; tenant CRs (e.g. OIDCApp) then need no `projectRef`/`projectId` — the resolved scope supplies it. The resolved project is recorded in the CR's `status.projectId`, so deletion still works after maps are removed.
+
+### Internal Delegation (Delegated-SA Manager)
+
+Per resolved scope the operator mints and caches a scope-limited service account, and reconciles every tenant CR in that scope **with the delegated key** — the binding credential only mints/rotates/revokes. Isolation stops being a promise of the routing code and becomes API-enforced by the credential in hand.
+
+- **Explicit create + explicit grant, never ORG_PROJECT_CREATOR.** [zitadel#10561](https://github.com/zitadel/zitadel/issues/10561): the creator role does not make the SA owner of the project it creates. The manager explicitly creates the machine user, then grants org-scope ⇒ `ORG_OWNER` (`AddOrgMember`) or project-scope ⇒ `PROJECT_OWNER` (`AddProjectMember`), creating the project first (binding credential) when the rule names one that doesn't exist. PROJECT_OWNER is sufficient for full application CRUD via the v2 Application API (prototype-proven).
+- **Secrets-backed cache.** One labeled Secret per scope in the operator namespace (`zitadel-delegation-<scope-hash>`, label `zitadel.truvity.io/delegation`; key JSON + SA user ID + timestamps). The key is persisted to the Secret **before** the in-memory cache — a crash cannot lose a minted key. Restart = list-by-label warm start; lazy validity re-check per scope on first use (out-of-band SA deletion → re-mint).
+- **Eager revoke + orphan GC.** When a scope stops matching (rule removed, label changed): revoke the Zitadel SA, then delete the Secret. A periodic GC sweeps labeled Secrets matching no current scope.
+- **Internal rotation.** Delegate keys rotate on a 90-day cycle using the same dual-key mechanics as the MachineUser surface: mint new key → swap in Secret → revoke old after grace. Zero-downtime; two keys coexist during the overlap.
+- **Deletion fallback (prototype-forced).** If maps/delegates are gone while a tenant CR still holds a finalizer, strict fail-closed deadlocks deletion. During deletion, resolution/delegation failure falls back to the binding client. Corollary: a delegate must outlive the tenant CRs it serves — de-provisioning removes tenant CRs first, then rules, then delegates.
+
+Auditability: `AdminService.ListEvents` filtered by editor proves who did what. The prototype's actor proof: all `project.application.*` events on a reconciled aggregate authored by the delegate, zero by the binding; `project.added` authored by the binding (minting is the binding's job). That is the trust boundary, and production can assert it the same way.
+
+### MachineUser Extension
+
+The existing `MachineUser` kind is extended (no new CRD):
+
+```yaml
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: MachineUser
+metadata:
+  name: billing-worker
+  namespace: acme-billing
+spec:
+  userName: billing-worker
+  roles: [billing.reader, billing.writer]   # explicit grants within the namespace's
+                                            # resolved scope — narrow allowed, widen never
+  key:
+    rotateAfter: 2160h                      # dual-key rotation: mint new → update
+                                            # Secret → revoke old after grace
+  secretRef:
+    name: billing-worker-credentials
+```
+
+The output Secret becomes a full **connection bundle**: key JSON, instance URL, instance ID/issuer, org ID, project ID — a consumer can construct a working client from the Secret alone (sibling of OIDCApp's output). Backward compatible: CRs without `key.rotateAfter` behave exactly as today.
+
+### Dual-Serving and CR-Level `spec.instance`
+
+When two operators (different instances) serve the same namespace, tenant CRs gain an optional `spec.instance` pin:
+
+- **Pinned to this operator's domain** — reconciled normally through the resolved scope.
+- **Pinned to a foreign domain** — left completely untouched: no finalizer, no status writes, no Zitadel calls. Repinning hands the CR over cleanly (prototype-proven, single process).
+- **Unset while dual-served** — both operators fail closed and mark `AmbiguousInstance` via SSA with distinct field managers; neither acts externally.
+
+### SSA Status Discipline (hard prerequisite)
+
+The prototype demonstrated that read-modify-write `Status().Update()` **wipes conditions**: a full-object `Update()` refreshes the object from the server and silently drops in-memory condition edits (a `ScopeResolved` condition vanished; found via a failing test). This model cannot support two writers at all — dual-serving `AmbiguousInstance` is impossible on top of it.
+
+Therefore: **all status writes move to Server-Side Apply** (`client.Apply`, field manager `zitadel-operator/<domain>`), each manager owning only its fields; this lands as the **first commit of the v0.18 implementation batch**, before any feature work. The two-process dual-serving smoke test is gated on it.
+
+### Leader Election
+
+Always on, unconditionally — not gated on replica count. Even at `replicas: 1`, a rolling update or node drain runs old and new pods simultaneously; without a lease both reconcile at once (double-minted delegated SAs, duplicate adopt-path creates, racing Secret writes). `LeaderElectionID` derives from the Helm fullname (the current hardcoded `zitadel-operator.truvity.io` would make two deployments in one namespace fight over a single lease). The delegated-SA minter and scope-map loader are leadership-gated like all controllers.
+
+### Breaking Changes (v0.17 → v0.18)
+
+Deliberately breaking (0.x semver; gitops is the only consumer — no legacy shim):
+
+- **`defaultOrganizationId` — removed.** There is **no default scope**: a namespace either resolves through a scope map or (zero-maps passthrough aside) is fail-closed. Implicit org fallback is exactly the ambient authority this redesign removes.
+- **`projectScopeLabel` — removed.** Label-value-as-project-name routing is superseded by scope maps; see the Capsule lesson above.
+- The operator **fails fast at startup** when a removed key is present in config, with an error pointing at the scope-map migration note.
+- `watchNamespaces` survives as the optional coarse informer filter only — semantic routing is scope maps. The operator's own namespace must always be in the informer cache.
+
+### Single-Writer Stance
+
+The operator is the **single writer** for the scopes it manages and detects drift on them (full-field drift detection, as established for OIDCApp). It does not co-manage with humans or other tooling inside a managed scope. This is the Keycloak lesson: the legacy Keycloak operator's one-shot/partial-management model — where the operator imported state but did not own it, and out-of-band edits silently diverged — produced exactly the ambiguity the new `KeycloakRealmImport` had to make explicit. We take the other branch: ownership is scoped (by the maps), but within a scope it is total. Out-of-cluster provisioning (instance, orgs, corporate IdPs) stays in Pulumi per the pulumi↔operator doctrine — the boundary is the org/project line, not shared writes on one resource.
+
+### Rejected: Templating
+
+Per-namespace templating of scope maps (generate an org/project per namespace pattern) was considered and **rejected**: convention-based separation suffices, per-namespace Zitadel isolation is not required, and a template engine inside the routing surface trades auditability for convenience. CI tenancy follows the convention documented in INF-429 (per-tenant CI namespaces route via literal rules to the Testing org; `+addressed` test users are CR-owned).
+
+### Prototype Findings Pointer
+
+Everything above marked "prototype-proven" is evidenced in `docs/research/proto-v018-findings.md` (branch `proto/v018-scope-maps`, commit `b33f58e`): 12/12 integration tests green against real Zitadel, actor proof via `ListEvents`, SDK v3.29.2 sufficient with no raw HTTP.
