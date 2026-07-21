@@ -149,6 +149,27 @@ func markReady(ctx context.Context, k8s client.Client, cfg *config.Config, obj c
 	return applyStatus(ctx, k8s, cfg, obj)
 }
 
+// checkBindingLevel enforces the INF-424 degradation matrix: instance-level
+// resources (Default* policies, instance IdPs, providers, actions, org
+// creation) are not reconcilable under an org-owner binding. The CR gets a
+// Ready=False / NotSupportedAtBindingLevel condition and requeues slowly.
+// Callers must skip this check during deletion so finalizers never deadlock.
+func checkBindingLevel(ctx context.Context, k8s client.Client, cfg *config.Config, obj client.Object, conditions *[]metav1.Condition, ready *bool) (done bool, result ctrl.Result, err error) {
+	if cfg == nil || cfg.Binding != config.BindingOrgOwner || !obj.GetDeletionTimestamp().IsZero() {
+		return false, ctrl.Result{}, nil
+	}
+	if ready != nil {
+		*ready = false
+	}
+	setCondition(conditions, ConditionTypeReady, metav1.ConditionFalse, "NotSupportedAtBindingLevel",
+		"this resource requires an iam-owner binding; the operator is bound as org-owner (org "+cfg.BoundOrganizationId+")")
+	if err := applyStatus(ctx, k8s, cfg, obj); err != nil {
+		return true, ctrl.Result{}, err
+	}
+	log.FromContext(ctx).Info("instance-level resource not supported at org-owner binding", "kind", obj.GetObjectKind().GroupVersionKind().Kind)
+	return true, ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
 // waitForRef checks if err is a "ref not ready" condition and, if so, sets
 // a condition on the object and returns a requeue result. Returns (true, result) if
 // handled, (false, _) if the error is not a ref-not-ready error.
@@ -161,21 +182,4 @@ func waitForRef(ctx context.Context, k8s client.Client, cfg *config.Config, obj 
 	setCondition(conditions, ConditionTypeReady, metav1.ConditionFalse, conditionReason, err.Error())
 	_ = applyStatus(ctx, k8s, cfg, obj)
 	return true, ctrl.Result{RequeueAfter: requeueOnError}
-}
-
-// checkProjectScope validates project scope and returns a requeue result if validation fails.
-// Returns (true, result, err) if the caller should return immediately (validation failed or error).
-func checkProjectScope(ctx context.Context, k8s client.Client, cfg *config.Config, namespace string, obj client.Object, conditions *[]metav1.Condition) (done bool, result ctrl.Result, err error) {
-	shouldProceed, err := validateProjectScope(ctx, k8s, cfg, namespace, conditions)
-	if err != nil {
-		return true, ctrl.Result{}, err
-	}
-	if !shouldProceed {
-		_ = applyStatus(ctx, k8s, cfg, obj)
-		log.FromContext(ctx).Info("project scope validation failed, requeueing",
-			"namespace", namespace,
-			"label", cfg.ProjectScopeLabel)
-		return true, ctrl.Result{RequeueAfter: requeueOnError}, nil
-	}
-	return false, ctrl.Result{}, nil
 }

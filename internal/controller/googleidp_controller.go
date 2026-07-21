@@ -41,25 +41,15 @@ func (r *GoogleIdPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// INF-424 degradation matrix: instance-level resources are not supported
+	// under an org-owner binding (no-op during deletion so finalizers complete).
+	if done, result, err := checkBindingLevel(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, &cr.Status.Ready); done {
+		return result, err
+	}
+
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		if cr.Status.IdpID != "" {
-			_, err := r.Zitadel.Admin().RemoveIDPFromLoginPolicy(ctx, &admin.RemoveIDPFromLoginPolicyRequest{
-				IdpId: cr.Status.IdpID,
-			})
-			// Ignore not found — might not be in login policy.
-			if err != nil && status.Code(err) != codes.NotFound {
-				logger.Info("could not remove idp from login policy", "error", err)
-			}
-			// TODO: Admin API doesn't have a direct "delete provider" for instance-level IdPs.
-			// The provider is deactivated by removing it from the login policy.
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return r.handleDelete(ctx, &cr)
 	}
 
 	// Add finalizer.
@@ -97,6 +87,29 @@ func (r *GoogleIdPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	logger.Info("googleidp reconciled", "idpID", idpID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// handleDelete deactivates the instance-level IdP (by removing it from the
+// login policy) and releases the finalizer.
+func (r *GoogleIdPReconciler) handleDelete(ctx context.Context, cr *zitadelv1alpha2.GoogleIdP) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	if cr.Status.IdpID != "" {
+		_, err := r.Zitadel.Admin().RemoveIDPFromLoginPolicy(ctx, &admin.RemoveIDPFromLoginPolicyRequest{
+			IdpId: cr.Status.IdpID,
+		})
+		// Ignore not found — might not be in login policy.
+		if err != nil && status.Code(err) != codes.NotFound {
+			logger.Info("could not remove idp from login policy", "error", err)
+		}
+		// NOTE: the Admin API has no direct "delete provider" for
+		// instance-level IdPs; removal from the login policy deactivates it.
+	}
+	if removeFinalizer(cr) {
+		if err := r.Update(ctx, cr); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *GoogleIdPReconciler) resolveClientSecret(ctx context.Context, cr *zitadelv1alpha2.GoogleIdP) (string, error) {

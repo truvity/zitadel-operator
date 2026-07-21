@@ -37,6 +37,12 @@ func (r *EmailProviderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// INF-424 degradation matrix: instance-level resources are not supported
+	// under an org-owner binding (no-op during deletion so finalizers complete).
+	if done, result, err := checkBindingLevel(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, &cr.Status.Ready); done {
+		return result, err
+	}
+
 	// Validate: exactly one of smtp or http must be set.
 	if cr.Spec.Smtp == nil && cr.Spec.Http == nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "InvalidSpec", "one of smtp or http must be set")

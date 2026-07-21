@@ -35,6 +35,12 @@ func (r *DefaultPasswordAgePolicyReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// INF-424 degradation matrix: instance-level resources are not supported
+	// under an org-owner binding (no-op during deletion so finalizers complete).
+	if done, result, err := checkBindingLevel(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, &cr.Status.Ready); done {
+		return result, err
+	}
+
 	// Singleton conflict detection.
 	if conflict, err := r.checkConflict(ctx, &cr); err != nil || conflict {
 		return ctrl.Result{RequeueAfter: requeueInterval}, err
