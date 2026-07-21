@@ -15,6 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 )
 
@@ -23,6 +25,12 @@ type OrgMemberReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=orgmembers,verbs=get;list;watch;create;update;patch;delete
@@ -37,8 +45,17 @@ func (r *OrgMemberReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve organization.
-	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	orgID, err := resolveScopedOrganizationId(ctx, r.Client, rs, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
 		if isRefNotReady(err) {
 			logger.Info("waiting for organization ref to become ready", "error", err)
@@ -62,7 +79,7 @@ func (r *OrgMemberReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Deletion.
 	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
-		_, err := r.Zitadel.Management().RemoveOrgMember(ctx, &management.RemoveOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+		_, err := zclient(ctx, r.Zitadel).Management().RemoveOrgMember(ctx, &management.RemoveOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			UserId: userID,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
@@ -77,16 +94,19 @@ func (r *OrgMemberReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Ensure org member exists — try update first, then add.
-	_, err = r.Zitadel.Management().UpdateOrgMember(ctx, &management.UpdateOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	_, err = zclient(ctx, r.Zitadel).Management().UpdateOrgMember(ctx, &management.UpdateOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		UserId: userID,
 		Roles:  cr.Spec.Roles,
 	})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			// Member doesn't exist, add it.
-			_, err = r.Zitadel.Management().AddOrgMember(ctx, &management.AddOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+			_, err = zclient(ctx, r.Zitadel).Management().AddOrgMember(ctx, &management.AddOrgMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				UserId: userID,
 				Roles:  cr.Spec.Roles,
 			})

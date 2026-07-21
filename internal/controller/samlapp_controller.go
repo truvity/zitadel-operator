@@ -12,6 +12,8 @@ import (
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	applicationv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/application/v2"
@@ -22,6 +24,12 @@ type SAMLAppReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=samlapps,verbs=get;list;watch;create;update;patch;delete
@@ -34,13 +42,17 @@ func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Project scope label enforcement.
-	if done, result, err := checkProjectScope(ctx, r.Client, r.Config, req.Namespace, &cr, &cr.Status.Conditions); done {
-		return result, err
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
 	}
 
 	// Resolve project ID (and inherited org ID).
-	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
+	projectID, inheritedOrgID, err := resolveScopedProjectId(ctx, r.Client, rs, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace, cr.Status.ProjectId, cr.Status.OrganizationId)
 	if err != nil {
 		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
@@ -51,7 +63,7 @@ func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Handle deletion.
 	if done, result, err := handleDeletionStrict(ctx, r.Client, &cr, func() error {
 		if cr.Status.ApplicationId != "" {
-			_, err := r.Zitadel.Application().DeleteApplication(ctx, &applicationv2.DeleteApplicationRequest{
+			_, err := zclient(ctx, r.Zitadel).Application().DeleteApplication(ctx, &applicationv2.DeleteApplicationRequest{
 				ApplicationId: cr.Status.ApplicationId,
 				ProjectId:     projectID,
 			})
@@ -68,6 +80,9 @@ func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Find or create app.
 	displayName := cr.DisplayName()
@@ -98,7 +113,7 @@ func (r *SAMLAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *SAMLAppReconciler) findAppByName(ctx context.Context, projectID, appName string) string {
-	listResp, err := r.Zitadel.Application().ListApplications(ctx, &applicationv2.ListApplicationsRequest{
+	listResp, err := zclient(ctx, r.Zitadel).Application().ListApplications(ctx, &applicationv2.ListApplicationsRequest{
 		Filters: []*applicationv2.ApplicationSearchFilter{
 			{
 				Filter: &applicationv2.ApplicationSearchFilter_ProjectIdFilter{
@@ -137,7 +152,7 @@ func (r *SAMLAppReconciler) createSAMLApp(ctx context.Context, projectID string,
 		return "", fmt.Errorf("one of metadataXml or metadataUrl is required")
 	}
 
-	resp, err := r.Zitadel.Application().CreateApplication(ctx, &applicationv2.CreateApplicationRequest{
+	resp, err := zclient(ctx, r.Zitadel).Application().CreateApplication(ctx, &applicationv2.CreateApplicationRequest{
 		ProjectId: projectID,
 		Name:      cr.DisplayName(),
 		ApplicationType: &applicationv2.CreateApplicationRequest_SamlConfiguration{

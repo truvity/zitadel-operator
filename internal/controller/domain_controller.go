@@ -15,6 +15,8 @@ import (
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
@@ -27,6 +29,12 @@ type DomainReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=domains,verbs=get;list;watch;create;update;patch;delete
@@ -41,8 +49,17 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve organization.
-	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	orgID, err := resolveScopedOrganizationId(ctx, r.Client, rs, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
 		if isRefNotReady(err) {
 			logger.Info("waiting for organization ref to become ready", "error", err)
@@ -56,7 +73,7 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		_, err := r.Zitadel.Management().RemoveOrgDomain(ctx, &management.RemoveOrgDomainRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+		_, err := zclient(ctx, r.Zitadel).Management().RemoveOrgDomain(ctx, &management.RemoveOrgDomainRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			Domain: cr.Spec.DomainName,
 		})
 		if err != nil && status.Code(err) != codes.NotFound {
@@ -99,7 +116,7 @@ func (r *DomainReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 func (r *DomainReconciler) ensureDomain(ctx context.Context, domainName string) error {
 	// Check if domain already exists.
-	listResp, err := r.Zitadel.Management().ListOrgDomains(ctx, &management.ListOrgDomainsRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	listResp, err := zclient(ctx, r.Zitadel).Management().ListOrgDomains(ctx, &management.ListOrgDomainsRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		Query: &object.ListQuery{Limit: 100},
 		Queries: []*org.DomainSearchQuery{
 			{
@@ -123,7 +140,7 @@ func (r *DomainReconciler) ensureDomain(ctx context.Context, domainName string) 
 	}
 
 	// Add domain.
-	_, err = r.Zitadel.Management().AddOrgDomain(ctx, &management.AddOrgDomainRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	_, err = zclient(ctx, r.Zitadel).Management().AddOrgDomain(ctx, &management.AddOrgDomainRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		Domain: domainName,
 	})
 	if err != nil {

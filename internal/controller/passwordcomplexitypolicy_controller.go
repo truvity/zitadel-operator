@@ -7,13 +7,14 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
@@ -24,6 +25,12 @@ type PasswordComplexityPolicyReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=passwordcomplexitypolicies,verbs=get;list;watch;create;update;patch;delete
@@ -38,14 +45,20 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve organization.
-	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	orgID, err := resolveScopedOrganizationId(ctx, r.Client, rs, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for organization ref to become ready", "error", err)
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "OrgNotReady", err.Error())
-			_ = applyStatus(ctx, r.Client, r.Config, &cr)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
@@ -54,7 +67,7 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 
 	// Deletion.
 	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
-		_, err := r.Zitadel.Management().ResetPasswordComplexityPolicyToDefault(ctx, &management.ResetPasswordComplexityPolicyToDefaultRequest{})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetPasswordComplexityPolicyToDefault(ctx, &management.ResetPasswordComplexityPolicyToDefaultRequest{})
 		if err != nil && status.Code(err) != codes.NotFound {
 			return nil // non-critical
 		}
@@ -67,6 +80,9 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Business logic.
 	if err := r.reconcileSpec(ctx, &cr); err != nil {
@@ -87,7 +103,7 @@ func (r *PasswordComplexityPolicyReconciler) Reconcile(ctx context.Context, req 
 }
 
 func (r *PasswordComplexityPolicyReconciler) reconcileSpec(ctx context.Context, cr *zitadelv1alpha2.PasswordComplexityPolicy) error {
-	currentResp, err := r.Zitadel.Management().GetPasswordComplexityPolicy(ctx, &management.GetPasswordComplexityPolicyRequest{})
+	currentResp, err := zclient(ctx, r.Zitadel).Management().GetPasswordComplexityPolicy(ctx, &management.GetPasswordComplexityPolicyRequest{})
 	if err != nil && status.Code(err) != codes.NotFound {
 		return fmt.Errorf("getting password complexity policy: %w", err)
 	}
@@ -114,7 +130,7 @@ func (r *PasswordComplexityPolicyReconciler) syncPolicy(ctx context.Context, spe
 	}
 
 	// Try update first; if not found (no custom policy), add.
-	_, err := r.Zitadel.Management().UpdateCustomPasswordComplexityPolicy(ctx, &management.UpdateCustomPasswordComplexityPolicyRequest{
+	_, err := zclient(ctx, r.Zitadel).Management().UpdateCustomPasswordComplexityPolicy(ctx, &management.UpdateCustomPasswordComplexityPolicyRequest{
 		MinLength:    spec.MinLength,
 		HasLowercase: spec.HasLowercase,
 		HasUppercase: spec.HasUppercase,
@@ -123,7 +139,7 @@ func (r *PasswordComplexityPolicyReconciler) syncPolicy(ctx context.Context, spe
 	})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
-			_, err = r.Zitadel.Management().AddCustomPasswordComplexityPolicy(ctx, &management.AddCustomPasswordComplexityPolicyRequest{
+			_, err = zclient(ctx, r.Zitadel).Management().AddCustomPasswordComplexityPolicy(ctx, &management.AddCustomPasswordComplexityPolicyRequest{
 				MinLength:    spec.MinLength,
 				HasLowercase: spec.HasLowercase,
 				HasUppercase: spec.HasUppercase,

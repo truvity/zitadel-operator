@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sync/atomic"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -13,11 +14,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/controller"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 )
 
@@ -37,12 +41,16 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 		metricsAddr       string
 		probeAddr         string
 		enableLeaderElect bool
+		leaderElectionID  string
 	)
 
 	flag.StringVar(&configPath, "config", config.DefaultConfigPath(), "Path to operator config file.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElect, "leader-elect", false, "Enable leader election for controller manager.")
+	flag.BoolVar(&enableLeaderElect, "leader-elect", true,
+		"Enable leader election (INF-427: on by default — even replicas=1 runs two pods during a rolling update).")
+	flag.StringVar(&leaderElectionID, "leader-election-id", "zitadel-operator.truvity.io",
+		"Leader election lease name. The Helm chart derives it from the release fullname so two deployments in one namespace get distinct leases.")
 
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flag.CommandLine)
@@ -62,8 +70,9 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 		"port", cfg.Port,
 		"insecure", cfg.Insecure,
 		"externalDomain", cfg.ExternalDomain,
-		"defaultOrganizationId", cfg.DefaultOrganizationId,
+		"binding", cfg.Binding,
 		"watchNamespaces", cfg.WatchNamespaces,
+		"operatorNamespace", cfg.OperatorNamespace,
 	)
 
 	// Read JWT key from file.
@@ -87,6 +96,16 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 	setupLog.Info("Zitadel client initialized successfully")
 
+	// v0.18 (INF-424): verify the binding assertion against the credential's
+	// actual memberships. Mismatch = crash early, before any reconcile.
+	boundOrgID, err := zitadel.VerifyBinding(context.Background(), zitadelClient, cfg.Binding)
+	if err != nil {
+		setupLog.Error(err, "binding verification failed", "binding", cfg.Binding)
+		os.Exit(1)
+	}
+	cfg.BoundOrganizationId = boundOrgID
+	setupLog.Info("binding verified", "binding", cfg.Binding, "boundOrganizationId", boundOrgID)
+
 	// Build manager options.
 	mgrOpts := ctrl.Options{
 		Scheme: scheme,
@@ -95,7 +114,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElect,
-		LeaderElectionID:       "zitadel-operator.truvity.io",
+		LeaderElectionID:       leaderElectionID,
 	}
 
 	// Namespace-scoped watching.
@@ -115,6 +134,74 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 		os.Exit(1)
 	}
 
+	// v0.18 scope maps (INF-423) + internal delegation (INF-425): active when
+	// the operator namespace is known. With zero ZitadelScopeMap objects the
+	// resolver is passthrough (legacy binding-client behavior).
+	var scopeResolver *scopemap.Resolver
+	var delegationMgr *delegation.Manager
+	if cfg.OperatorNamespace != "" {
+		synced := &atomic.Bool{}
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			if mgr.GetCache().WaitForCacheSync(ctx) {
+				synced.Store(true)
+			}
+			<-ctx.Done()
+			return nil
+		})); err != nil {
+			setupLog.Error(err, "unable to add cache-sync tracker")
+			os.Exit(1)
+		}
+		scopeResolver = &scopemap.Resolver{
+			Reader:    mgr.GetClient(),
+			Namespace: cfg.OperatorNamespace,
+			Instance:  cfg.Domain,
+			Synced:    synced.Load,
+			Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"),
+		}
+		delegationMgr = &delegation.Manager{
+			K8s:     mgr.GetClient(),
+			Binding: zitadelClient,
+			ClientCfg: zitadel.ClientConfig{
+				Domain:            cfg.Domain,
+				Port:              cfg.Port,
+				InsecurePlaintext: cfg.Insecure,
+				ExternalDomain:    cfg.ExternalDomain,
+			},
+			Namespace: cfg.OperatorNamespace,
+		}
+		gc := &delegation.GC{
+			K8s:      mgr.GetClient(),
+			Resolver: scopeResolver,
+			Manager:  delegationMgr,
+		}
+		// Warm-restart (list delegation Secrets by label) then periodic
+		// orphan GC. Leadership-gated like all controllers.
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			if err := delegationMgr.WarmFromSecrets(ctx); err != nil {
+				setupLog.Error(err, "warming delegates from Secrets failed (lazy re-mint will recover)")
+			}
+			return gc.Run(ctx)
+		})); err != nil {
+			setupLog.Error(err, "unable to add delegation GC runnable")
+			os.Exit(1)
+		}
+		if err := (&controller.ZitadelScopeMapReconciler{
+			Client:    mgr.GetClient(),
+			Zitadel:   zitadelClient,
+			Config:    cfg,
+			Instance:  cfg.Domain,
+			Namespace: cfg.OperatorNamespace,
+			Recorder:  mgr.GetEventRecorderFor("zitadelscopemap"),
+			GC:        gc,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ZitadelScopeMap")
+			os.Exit(1)
+		}
+		setupLog.Info("v0.18 scope maps enabled", "operatorNamespace", cfg.OperatorNamespace)
+	} else {
+		setupLog.Info("operatorNamespace not set; scope maps disabled (passthrough mode)")
+	}
+
 	// Register controllers.
 	if err := (&controller.OrganizationReconciler{
 		Client:  mgr.GetClient(),
@@ -126,36 +213,44 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 
 	if err := (&controller.ProjectReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Project")
 		os.Exit(1)
 	}
 
 	if err := (&controller.OIDCAppReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OIDCApp")
 		os.Exit(1)
 	}
 
 	if err := (&controller.MachineUserReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MachineUser")
 		os.Exit(1)
 	}
 
 	if err := (&controller.UserGrantReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "UserGrant")
 		os.Exit(1)
@@ -180,90 +275,110 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 
 	if err := (&controller.ProjectMemberReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ProjectMember")
 		os.Exit(1)
 	}
 
 	if err := (&controller.OrgMetadataReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OrgMetadata")
 		os.Exit(1)
 	}
 
 	if err := (&controller.DomainReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Domain")
 		os.Exit(1)
 	}
 
 	if err := (&controller.ProjectGrantReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ProjectGrant")
 		os.Exit(1)
 	}
 
 	if err := (&controller.IdentityProviderReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "IdentityProvider")
 		os.Exit(1)
 	}
 
 	if err := (&controller.APIAppReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "APIApp")
 		os.Exit(1)
 	}
 
 	if err := (&controller.SAMLAppReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SAMLApp")
 		os.Exit(1)
 	}
 
 	if err := (&controller.ApplicationKeyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ApplicationKey")
 		os.Exit(1)
 	}
 
 	if err := (&controller.PersonalAccessTokenReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PersonalAccessToken")
 		os.Exit(1)
 	}
 
 	if err := (&controller.ProjectGrantMemberReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ProjectGrantMember")
 		os.Exit(1)
@@ -297,27 +412,33 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 
 	if err := (&controller.LoginPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "LoginPolicy")
 		os.Exit(1)
 	}
 
 	if err := (&controller.PasswordComplexityPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PasswordComplexityPolicy")
 		os.Exit(1)
 	}
 
 	if err := (&controller.LockoutPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "LockoutPolicy")
 		os.Exit(1)
@@ -333,18 +454,22 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 
 	if err := (&controller.HumanUserReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HumanUser")
 		os.Exit(1)
 	}
 
 	if err := (&controller.OrgMemberReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OrgMember")
 		os.Exit(1)
@@ -360,27 +485,33 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 
 	if err := (&controller.LabelPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "LabelPolicy")
 		os.Exit(1)
 	}
 
 	if err := (&controller.NotificationPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NotificationPolicy")
 		os.Exit(1)
 	}
 
 	if err := (&controller.PasswordAgePolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PasswordAgePolicy")
 		os.Exit(1)
@@ -468,9 +599,11 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 
 	if err := (&controller.PrivacyPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PrivacyPolicy")
 		os.Exit(1)
@@ -486,9 +619,11 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 	}
 
 	if err := (&controller.MessageTextReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MessageText")
 		os.Exit(1)
