@@ -51,6 +51,7 @@ rules:
       - samlapps
       - smsproviders
       - usergrants
+      - zitadelscopemaps
     verbs:
       - get
       - list
@@ -104,6 +105,7 @@ rules:
       - samlapps/status
       - smsproviders/status
       - usergrants/status
+      - zitadelscopemaps/status
     verbs:
       - get
       - update

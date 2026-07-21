@@ -1,4 +1,6 @@
-{{- if and .Values.rbac.create .Values.rbac.namespaces .Values.config.projectScopeLabel -}}
+{{- /* Scope-map selectors evaluate namespace labels, so the operator
+     always needs a cluster-wide namespace reader in namespaced RBAC mode. */ -}}
+{{- if and .Values.rbac.create .Values.rbac.namespaces -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

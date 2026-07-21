@@ -30,13 +30,16 @@ config:
   port: "443"
   insecure: false
   externalDomain: ""
-  defaultOrganizationId: ""
+  # Binding assertion (v0.18, required): iam-owner | org-owner.
+  # Verified at startup against the credential's actual memberships.
+  binding: ""
   # Limit operator to these namespaces. Empty = all namespaces.
+  # In namespaced mode the release namespace must be included (scope maps and
+  # delegation Secrets live there).
   watchNamespaces: []
-  # Namespace label key for project scope enforcement.
-  # When set, the operator validates that CRDs are in namespaces with this label.
-  # Empty = no enforcement (backward-compatible).
-  projectScopeLabel: ""
+  # Namespace holding ZitadelScopeMap objects and delegation Secrets.
+  # Defaults to the release namespace.
+  operatorNamespace: ""
 
 # JWT key Secret for authenticating to Zitadel.
 credentials:
@@ -44,6 +47,9 @@ credentials:
   key: zitadel-admin-sa.json
   mountPath: /etc/zitadel
 
+# Leader election is on by default: even at replicas=1 a rolling update runs
+# two pods at once. The lease ID derives from the Helm fullname so two
+# deployments in one namespace never fight over a single lease.
 leaderElection:
   enabled: true
 
