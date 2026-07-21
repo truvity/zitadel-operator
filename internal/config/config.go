@@ -75,6 +75,26 @@ func (c *Config) InstanceIdentity() string {
 	return c.Domain
 }
 
+// ManagementIdentity returns the operator deployment's management identity
+// for the v0.19 ForeignManager guard (the zitadel.truvity.io/managed-by
+// annotation stamped at adoption). Two operators serving the same instance
+// (identical InstanceIdentity, so identical SSA field managers) still get
+// distinct management identities:
+//
+//   - org-owner binding: "<instance>/org/<boundOrganizationId>" — the fleet
+//     shape runs one operator per org, so the bound org is the natural,
+//     restart- and upgrade-stable discriminator.
+//   - iam-owner binding (or org not yet verified): "<instance>/ns/<operatorNamespace>"
+//     — same-instance iam-owner operators are expected to keep disjoint
+//     namespace sets; the operator namespace disambiguates the usual layout
+//     of one deployment per namespace.
+func (c *Config) ManagementIdentity() string {
+	if c.Binding == BindingOrgOwner && c.BoundOrganizationId != "" {
+		return c.InstanceIdentity() + "/org/" + c.BoundOrganizationId
+	}
+	return c.InstanceIdentity() + "/ns/" + c.OperatorNamespace
+}
+
 // DefaultConfigPath returns the default config file path (~/.config/zitadel-operator/config.yaml).
 func DefaultConfigPath() string {
 	home, err := os.UserHomeDir()

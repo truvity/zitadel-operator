@@ -138,10 +138,12 @@ func foreignOperatorManagerPresent(obj client.Object, mine string) bool {
 	return false
 }
 
-// tenantPreamble runs the two v0.18 entry checks every tenant reconciler
-// shares: the dual-serving instance gate (skipped during deletion) and
-// namespace scope resolution. On success the returned context carries the
-// per-scope Zitadel client for zclient().
+// tenantPreamble runs the entry checks every tenant reconciler shares: the
+// v0.18 dual-serving instance gate (skipped during deletion), the v0.19
+// ForeignManager management gate (active during deletion — a same-instance
+// foreign delete is not a server-side no-op), and namespace scope resolution.
+// On success the returned context carries the per-scope Zitadel client for
+// zclient().
 func tenantPreamble(
 	ctx context.Context,
 	k8s client.Client,
@@ -159,6 +161,13 @@ func tenantPreamble(
 		if done, result, err := instanceGate(ctx, k8s, cfg, obj, pinned, conditions); done {
 			return ctx, resolvedScope{}, true, result, err
 		}
+	}
+	// v0.19: the management gate runs after the instance gate so CRs pinned
+	// to a foreign instance stay completely untouched (no condition writes),
+	// but before any external action so a same-instance foreign operator
+	// never reconciles — or deletes — another deployment's CR.
+	if done, result, err := managementGate(ctx, k8s, cfg, obj, conditions); done {
+		return ctx, resolvedScope{}, true, result, err
 	}
 	rs, done, result, err = resolveScopeAndClient(ctx, k8s, cfg, resolver, delegator, binding, obj, conditions, namespace, deleting)
 	if done {
