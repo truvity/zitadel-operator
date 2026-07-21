@@ -632,3 +632,106 @@ These scenarios validate composed flows that a real GitOps deployment applies. T
 - **Expect:** operator detects drift and reverts redirectUris to CR spec
 - **Extends:** S-160 (singleton drift) to app-level resources
 - **Status:** PLANNED
+
+---
+
+## 21. v0.18 — Scope Maps, Internal Delegation, Multi-Instance (INF-422/INF-435)
+
+All scenarios below are IMPLEMENTED and run against the dedicated test instance; every created resource is prefixed `v018-`.
+
+### S-210: SSA status discipline — foreign-manager condition survives
+- OIDCApp waiting on an unresolved ref accumulates Ready=False conditions
+- A condition is applied by a *different* SSA field manager on the status subresource
+- Satisfy the ref; the operator writes Ready=True through its own field manager
+- **Expect:** the foreign condition AND the operator's Ready condition coexist (regression for the prototype's condition-wipe finding; conditions are listType=map)
+- **Test:** `TestSSA_ForeignManagerConditionSurvives`
+
+### S-220: Binding verification — iam-owner assertion passes
+- `VerifyBinding(iam-owner)` against the IAM_OWNER test credential succeeds, no bound org
+- **Test:** `TestBinding_VerifyIAMOwner`
+
+### S-221: Binding verification — mismatch is fatal
+- `VerifyBinding(org-owner)` against the IAM_OWNER credential errors (in `main()` this crashes before any reconcile)
+- **Test:** `TestBinding_MismatchCrashes`
+
+### S-222: org-owner degradation matrix
+- Instance-level resource (DefaultLockoutPolicy) reconciled under an org-owner binding
+- **Expect:** `Ready=False / NotSupportedAtBindingLevel`, no Zitadel call
+- **Test:** `TestBinding_DegradationMatrix_OrgOwner`
+
+### S-223: org-owner + foreign-org map
+- Scope map for an org foreign to the org-owner binding
+- **Expect:** map fail-closed `NotSupportedAtBindingLevel` + `ForeignOrganization` Warning Event
+- **Test:** `TestBinding_ForeignOrgMap_Event`
+
+### S-224: Breaking-config fail-fast (INF-428)
+- Config containing `defaultOrganizationId` or `projectScopeLabel` refuses to load, pointing at docs/MIGRATION-0.18.md; `binding` is required
+- **Tests:** unit `TestLoad_RemovedKeysFailFast`, `TestLoad_MissingBinding`, `TestLoad_InvalidBinding`
+
+### S-225: Scope map — selector rule match, scope-defaulted project
+- Namespace routed by a labelSelector rule to a project scope; OIDCApp with no projectRef/projectId becomes Ready with `status.projectId` = scope project; `ScopeResolved=True`; delegation Secret consistent with status
+- **Test:** `TestScopeMap_SelectorRuleMatch`
+
+### S-226: Scope map — literal rule + delegated ACTOR PROOF
+- Literal-rule scope; after reconcile, `AdminService.ListEvents` on the project aggregate shows ALL `project.application.*` events authored by the delegate and ZERO by the binding credential (`project.added` by the binding — minting is the binding's job)
+- **Test:** `TestScopeMap_LiteralMatch_DelegatedActorProof`
+
+### S-227: Scope map — no-match fail-closed
+- Maps exist, none match the namespace: `ScopeResolved=False / NoMatchingRule`, never Ready, no Zitadel app created (`MapsNotSynced` is a distinct transient reason)
+- **Test:** `TestScopeMap_NoMatch_FailClosed`
+
+### S-228: Scope map — cross-map conflict
+- Namespace matched by rules in two maps: fail-closed `ScopeConflict`, Warning Events on BOTH maps
+- **Test:** `TestScopeMap_CrossMapConflict`
+
+### S-229: Scope map — instance mismatch
+- Map with a foreign `spec.instance`: map gets `InstanceMatch=False / InstanceMismatch` + Ready=false; tenant CRs in its namespaces fail closed with `InstanceMismatch`
+- **Test:** `TestScopeMap_InstanceMismatch`
+
+### S-230: SDK surface evidence
+- `AuthService.ListMyMemberships` (binding checks) and v2 `UserService.AddKey/ListKeys/RemoveKey` (dual-key rotation) proven live
+- **Tests:** `TestScopeMap_SDKSurface_OwnMemberships`, `TestScopeMap_SDKSurface_DualKeyRotation`
+
+### S-231: Delegation — warm restart
+- Fresh Manager (simulated restart) warms from the labeled Secret and reuses the existing delegate (no second SA, same key)
+- **Test:** `TestDelegation_WarmRestart`
+
+### S-232: Delegation — lazy re-mint
+- Delegate SA deleted out-of-band; next Ensure detects the stale credential, drops the Secret and re-mints a new SA
+- **Test:** `TestDelegation_LazyRemint`
+
+### S-233: Delegation — internal dual-key rotation
+- Key past the rotation cycle: new key minted and swapped into the Secret; two keys live during the grace overlap; sweep revokes the old key after grace
+- **Test:** `TestDelegation_Rotation_DualKey`
+
+### S-234: Delegation — eager revoke + GC on unmatch
+- Tenant CR deleted, then its map deleted: the eager sweep revokes the delegate SA and deletes its Secret
+- **Test:** `TestDelegation_EagerRevoke_OnMapRemoval`
+
+### S-240: Dual-serving — foreign-instance pin ignored
+- OIDCApp pinned to another instance: completely untouched (no finalizer, no status, no Zitadel app); repinning to this operator hands the CR over through the delegated scope
+- **Test:** `TestDualServe_InstancePin_ForeignInstanceIgnored`
+
+### S-241: Dual-serving — AmbiguousInstance two-manager SSA smoke
+- Two reconcilers with distinct `zitadel-operator/<domain>` field managers serve one namespace; unpinned CR: the second operator detects the first via managedFields and marks `InstanceResolved=False / AmbiguousInstance` WITHOUT wiping the first's conditions; the first fails closed too (no external updates); pinning `spec.instance` resolves the ambiguity
+- **Test:** `TestDualServe_AmbiguousInstance_TwoManagers`
+
+### S-250: MachineUser — scope roles + connection bundle (INF-426)
+- Project-scoped namespace: `spec.roles` become a user grant on the scope project (via the delegated client); the key Secret is a connection bundle (`key.json`, `instanceUrl`, `issuer`, `orgId`, `projectId`, best-effort `instanceId`); narrowing roles updates the grant
+- **Test:** `TestMachineUser_ScopeRoles_ConnectionBundle`
+
+### S-251: MachineUser — spec.key.rotateAfter dual-key rotation
+- Controller-driven rotation with grace overlap: new key in Secret + status bookkeeping, 2 keys live during grace, old key revoked afterwards; no `key.rotateAfter` = pre-v0.18 behavior (covered by all pre-existing MachineUser tests)
+- **Test:** `TestMachineUser_KeyRotation_DualKey`
+
+### S-260: INF-430 — adopted confidential app regenerates client secret
+- App pre-created in Zitadel; adopting CR with an empty Secret: `client_secret` regenerated exactly once (no churn on later reconciles)
+- **Test:** `TestINF430_AdoptedConfidentialApp_SecretRegenerated`
+
+### S-261: INF-400 — URI-list update staleness repro
+- Successive redirect-URI mutations (append, replace, shrink) must each converge server-side with no stale entries
+- **Test:** `TestINF400_URIListUpdate_NoStaleState`
+
+### S-270: Leader election — two-process handoff (INF-427)
+- Two managers, one lease: exactly one leads; graceful shutdown hands the lease to the standby
+- **Test:** `TestLeaderElection_TwoProcessHandoff`
