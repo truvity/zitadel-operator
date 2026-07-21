@@ -46,6 +46,14 @@ spec:
           spec:
             description: UserGrantSpec defines the desired state of UserGrant.
             properties:
+              instance:
+                description: |-
+                  Instance optionally pins this resource to a specific Zitadel instance
+                  domain (v0.18 dual-serving). When set to a domain other than this
+                  operator's binding, the CR is ignored entirely so the owning operator
+                  can manage it. When empty while the namespace is served by two
+                  operators, both fail closed with an AmbiguousInstance condition.
+                type: string
               organizationId:
                 description: |-
                   OrganizationId references a pre-existing Zitadel organization by raw ID.
