@@ -37,6 +37,12 @@ func (r *SmsProviderReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// INF-424 degradation matrix: instance-level resources are not supported
+	// under an org-owner binding (no-op during deletion so finalizers complete).
+	if done, result, err := checkBindingLevel(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, &cr.Status.Ready); done {
+		return result, err
+	}
+
 	// Validate: exactly one of twilio or http must be set.
 	if cr.Spec.Twilio == nil && cr.Spec.Http == nil {
 		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "InvalidSpec", "one of twilio or http must be set")

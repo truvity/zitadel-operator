@@ -41,22 +41,15 @@ func (r *GitHubIdPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// INF-424 degradation matrix: instance-level resources are not supported
+	// under an org-owner binding (no-op during deletion so finalizers complete).
+	if done, result, err := checkBindingLevel(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, &cr.Status.Ready); done {
+		return result, err
+	}
+
 	// Handle deletion.
 	if !cr.DeletionTimestamp.IsZero() {
-		if cr.Status.IdpID != "" {
-			_, err := r.Zitadel.Admin().RemoveIDPFromLoginPolicy(ctx, &admin.RemoveIDPFromLoginPolicyRequest{
-				IdpId: cr.Status.IdpID,
-			})
-			if err != nil && status.Code(err) != codes.NotFound {
-				logger.Info("could not remove idp from login policy", "error", err)
-			}
-		}
-		if removeFinalizer(&cr) {
-			if err := r.Update(ctx, &cr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
+		return r.handleDelete(ctx, &cr)
 	}
 
 	// Add finalizer.
@@ -94,6 +87,26 @@ func (r *GitHubIdPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	logger.Info("githubidp reconciled", "idpID", idpID)
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// handleDelete deactivates the instance-level IdP (by removing it from the
+// login policy) and releases the finalizer.
+func (r *GitHubIdPReconciler) handleDelete(ctx context.Context, cr *zitadelv1alpha2.GitHubIdP) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	if cr.Status.IdpID != "" {
+		_, err := r.Zitadel.Admin().RemoveIDPFromLoginPolicy(ctx, &admin.RemoveIDPFromLoginPolicyRequest{
+			IdpId: cr.Status.IdpID,
+		})
+		if err != nil && status.Code(err) != codes.NotFound {
+			logger.Info("could not remove idp from login policy", "error", err)
+		}
+	}
+	if removeFinalizer(cr) {
+		if err := r.Update(ctx, cr); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *GitHubIdPReconciler) resolveClientSecret(ctx context.Context, cr *zitadelv1alpha2.GitHubIdP) (string, error) {
