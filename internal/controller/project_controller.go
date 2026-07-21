@@ -95,17 +95,17 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	// Sync project roles if specified.
-	if len(cr.Spec.Roles) > 0 {
-		if err := r.syncRoles(ctx, projectID, orgID, cr.Spec.Roles); err != nil {
-			return ctrl.Result{}, fmt.Errorf("syncing roles: %w", err)
-		}
+	// Drift-correct declared settings and sync the authoritative role set.
+	if err := r.syncProjectConfiguration(ctx, &cr, projectID, orgID); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Status.
-	statusChanged := cr.Status.ProjectId != projectID || cr.Status.OrganizationId != orgID
+	statusChanged := cr.Status.ProjectId != projectID || cr.Status.OrganizationId != orgID ||
+		cr.Status.ObservedGeneration != cr.Generation
 	cr.Status.ProjectId = projectID
 	cr.Status.OrganizationId = orgID
+	cr.Status.ObservedGeneration = cr.Generation
 	if err := markReady(ctx, r.Client, r.Config, &cr, statusFields{
 		conditions: &cr.Status.Conditions, ready: &cr.Status.Ready, lastSyncTime: &cr.Status.LastSyncTime,
 	}, statusChanged); err != nil {
@@ -167,14 +167,59 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 
 	// Create new project.
 	createResp, err := zclient(ctx, r.Zitadel).Project().CreateProject(ctx, &projectv2.CreateProjectRequest{
-		Name:           displayName,
-		OrganizationId: orgID,
+		Name:                  displayName,
+		OrganizationId:        orgID,
+		ProjectRoleAssertion:  cr.Spec.AssertRolesOnAuth,
+		AuthorizationRequired: cr.Spec.CheckAuthorizationOnAuth,
 	})
 	if err != nil {
 		return "", fmt.Errorf("creating project: %w", err)
 	}
 
 	return createResp.GetProjectId(), nil
+}
+
+// syncProjectConfiguration drift-corrects the declared project settings
+// (v0.19) and, when spec.roles is set, syncs the authoritative role set.
+func (r *ProjectReconciler) syncProjectConfiguration(ctx context.Context, cr *zitadelv1alpha2.Project, projectID, orgID string) error {
+	if err := r.ensureProjectSettings(ctx, cr, projectID); err != nil {
+		return err
+	}
+	if len(cr.Spec.Roles) > 0 {
+		if err := r.syncRoles(ctx, projectID, orgID, cr.Spec.Roles); err != nil {
+			return fmt.Errorf("syncing roles: %w", err)
+		}
+	}
+	return nil
+}
+
+// ensureProjectSettings drift-corrects the declared project settings on an
+// existing (possibly adopted) project. v0.19: before this, spec fields
+// assertRolesOnAuth / checkAuthorizationOnAuth were only honored at creation
+// time (and adoption ignored them entirely).
+func (r *ProjectReconciler) ensureProjectSettings(ctx context.Context, cr *zitadelv1alpha2.Project, projectID string) error {
+	getResp, err := zclient(ctx, r.Zitadel).Project().GetProject(ctx, &projectv2.GetProjectRequest{
+		ProjectId: projectID,
+	})
+	if err != nil {
+		return fmt.Errorf("getting project for settings drift check: %w", err)
+	}
+	p := getResp.GetProject()
+	if p.GetProjectRoleAssertion() == cr.Spec.AssertRolesOnAuth &&
+		p.GetAuthorizationRequired() == cr.Spec.CheckAuthorizationOnAuth {
+		return nil
+	}
+	assertion := cr.Spec.AssertRolesOnAuth
+	authRequired := cr.Spec.CheckAuthorizationOnAuth
+	_, err = zclient(ctx, r.Zitadel).Project().UpdateProject(ctx, &projectv2.UpdateProjectRequest{
+		ProjectId:             projectID,
+		ProjectRoleAssertion:  &assertion,
+		AuthorizationRequired: &authRequired,
+	})
+	if err != nil {
+		return fmt.Errorf("updating project settings: %w", err)
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
