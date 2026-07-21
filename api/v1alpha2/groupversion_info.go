@@ -24,6 +24,7 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(GroupVersion,
 		&Organization{}, &OrganizationList{},
 		&Project{}, &ProjectList{},
+		&ProjectRole{}, &ProjectRoleList{},
 		&OIDCApp{}, &OIDCAppList{},
 		&APIApp{}, &APIAppList{},
 		&SAMLApp{}, &SAMLAppList{},
