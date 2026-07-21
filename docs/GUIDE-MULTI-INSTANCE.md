@@ -2,6 +2,14 @@
 
 Reference architecture for deploying multiple zitadel-operator instances side-by-side in a single Kubernetes cluster.
 
+> **v0.18 note:** this guide describes the current (v0.17) mechanisms. v0.18
+> replaces `defaultOrganizationId`/`projectScopeLabel` routing with
+> `ZitadelScopeMap` CRs + internal delegation, and **deprecates the
+> ORG_PROJECT_CREATOR credential pattern** (see
+> [Credential Model](#4-credential-model) and
+> [Operator-per-Instance and Dual-Serving](#11-operator-per-instance-and-dual-serving-v018)).
+> Design: `docs/DESIGN.md`, "v0.18 Extension".
+
 ## 1. When You Need Multiple Operators
 
 Deploy multiple operators when:
@@ -29,7 +37,7 @@ graph TB
             C_INST["Instance: auth.example.com (prod) OR auth.internal.example.com (devel)"]
             C_ORG["Org: Acme Customers (prod) OR Acme Testing (devel)"]
             C_NS["watchNamespaces: product namespaces"]
-            C_CRED["Credential: ORG_PROJECT_CREATOR"]
+            C_CRED["Credential: org-owner binding (was ORG_PROJECT_CREATOR — deprecated)"]
             C_LABEL["projectScopeLabel: example.com/customer-project"]
         end
     end
@@ -76,12 +84,28 @@ A namespace can carry both labels if resources from both operators are expected 
 
 ### Two Patterns
 
-| Pattern                 | Operator | Capabilities                                                         |
-| ----------------------- | -------- | -------------------------------------------------------------------- |
-| **PROJECT_OWNER**       | Employee | Manages existing projects (pre-created by IaC), creates apps/roles   |
-| **ORG_PROJECT_CREATOR** | Customer | Can create new projects in its org, self-provisions per-app projects |
+| Pattern                                | Operator | Capabilities                                                       |
+| -------------------------------------- | -------- | ------------------------------------------------------------------ |
+| **PROJECT_OWNER**                      | Employee | Manages existing projects (pre-created by IaC), creates apps/roles |
+| **ORG_PROJECT_CREATOR** *(deprecated)* | Customer | Could create new projects in its org — **do not use, see below**   |
 
 The employee operator works with projects that already exist (created by Terraform/Pulumi during cluster bootstrap). The customer operator creates projects on demand — each product service gets its own Zitadel project.
+
+### ORG_PROJECT_CREATOR Is Deprecated
+
+**Do not build new setups on ORG_PROJECT_CREATOR.**
+[zitadel#10561](https://github.com/zitadel/zitadel/issues/10561): the creator
+role does **not** grant the service account ownership of the projects it
+creates — the SA can create a project and then be unable to manage it. The
+pattern only ever appeared to work because of over-granted credentials
+alongside it.
+
+The v0.18 replacement is **internal delegation**: the operator's binding
+credential (`binding: iam-owner | org-owner`, asserted at startup) explicitly
+creates the project and explicitly grants a scope-limited delegated SA
+(org-scope ⇒ `ORG_OWNER`, project-scope ⇒ `PROJECT_OWNER`), then reconciles
+tenant CRs with the delegated key. Explicit create + explicit grant — never
+reliance on a creator self-grant.
 
 ### Secret Configuration
 
@@ -133,7 +157,7 @@ The operator validates the namespace label before reconciling. This catches the 
 In development and test environments, you typically don't want to interact with the production customer Zitadel instance. The pattern:
 
 - The customer operator still runs in devel, but points to a **"Testing" organization** on the employee Zitadel instance
-- The machine user has `ORG_PROJECT_CREATOR` role on the testing org
+- The machine user is an `org-owner` binding on the testing org (v0.17 and earlier used `ORG_PROJECT_CREATOR` — deprecated, see [Credential Model](#4-credential-model))
 - CRDs behave identically to production — same reconciliation, same Secret output
 - No risk of accidentally modifying real customer identity data
 
@@ -331,4 +355,64 @@ Verify the label key matches `projectScopeLabel` in the operator config and the 
 
 ### Both operators trying to reconcile the same CR
 
-This shouldn't happen if `watchNamespaces` are disjoint. If a namespace appears in both operators' watch lists, the operators will race. Resolution: ensure each namespace belongs to exactly one operator.
+This shouldn't happen if `watchNamespaces` are disjoint. If a namespace appears in both operators' watch lists, the operators will race. Resolution: ensure each namespace belongs to exactly one operator. From v0.18, deliberately dual-served namespaces are supported via CR-level `spec.instance` pinning — see the next section.
+
+## 11. Operator-per-Instance and Dual-Serving (v0.18)
+
+### Operator-per-Instance
+
+v0.18 keeps the invariant: **one operator deployment = one Zitadel instance =
+one binding credential**, declared in config and *asserted at startup*:
+
+```yaml
+# values-employee.yaml (v0.18 shape)
+config:
+  domain: auth.internal.example.com
+  binding: iam-owner        # verified against the credential's real memberships; mismatch = crash early
+```
+
+Semantic routing moves from `defaultOrganizationId`/`projectScopeLabel` (both
+removed, fail-fast on presence) to `ZitadelScopeMap` CRs in the operator's
+namespace: per-org maps whose rules (label selector or literal namespace list)
+resolve each namespace to an `(org)` or `(org, project)` scope. Every map
+carries a mandatory `spec.instance` assertion — a map for the wrong instance
+is fail-closed with `InstanceMismatch`, so the two operators' routing surfaces
+cannot cross-contaminate even if a map lands in the wrong namespace.
+
+### Dual-Serving One Namespace
+
+Sometimes a namespace legitimately holds CRs for **both** instances (e.g. a
+product namespace with an employee-facing dashboard app and a customer-facing
+app). v0.18 supports this with CR-level pinning:
+
+```yaml
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: OIDCApp
+metadata:
+  name: billing-admin-dashboard
+  namespace: billing
+spec:
+  instance: auth.internal.example.com   # pins this CR to the employee operator
+  ...
+```
+
+Behavior matrix (per operator):
+
+| `spec.instance` on the CR       | Operator behavior                                                            |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| Matches this operator's domain  | Reconcile through the resolved scope                                         |
+| Foreign domain                  | Completely untouched — no finalizer, no status writes, no Zitadel calls      |
+| Unset, namespace is dual-served | Fail-closed: both operators mark `AmbiguousInstance` via SSA, neither acts   |
+
+Repinning a CR from one domain to the other hands it over cleanly.
+
+Requirements for dual-serving:
+
+- **SSA status writes** with distinct field managers (`zitadel-operator/<domain>`)
+  — both operators write conditions on the same CR without clobbering each
+  other. This is a hard v0.18 prerequisite (read-modify-write status updates
+  provably wipe the other writer's conditions).
+- **Distinct lease IDs** — leader election is always on in v0.18 and the lease
+  ID derives from the Helm fullname, so two operator deployments coexist in
+  one namespace without fighting over a single lease.
+- Each operator still needs the namespace in its `watchNamespaces`/RBAC set.
