@@ -6,16 +6,29 @@ All notable changes to the zitadel-operator are documented here.
 
 **BREAKING** — see [docs/MIGRATION-0.18.md](docs/MIGRATION-0.18.md) for the full v0.17 → v0.18 guide.
 
+### Pre-release review changes (doc-review findings, applied before v0.18.0)
+
+- **CRD renamed `ZitadelScopeMap` → `ScopeMap`** (kind, plural `scopemaps`, files, RBAC). The only prefixed CRD broke the naming convention; renamed while days old.
+- **`spec.organization` is optional when `spec.organizationId` is set** (the ID is authoritative; a set-but-different name is drift). Same at rule level: `projectId` no longer requires a `project` name. At least one of organization name/ID is required.
+- **Instance alias**: new optional `instanceAlias` config key — the operator's stable identity for `spec.instance` pins, `ScopeMap` assertions and the SSA field manager (`zitadel-operator/<alias>`), defaulting to `domain`. A later domain migration no longer orphans pins or managed fields.
+- **Fail-fast when the operator namespace is undeterminable** (`operatorNamespace` unset and `POD_NAMESPACE` empty): previously scope maps silently disabled — fail-permissive for a security-relevant routing surface. Also enforced at startup: `watchNamespaces`, when set, must include the operator namespace; `keyFile` must be set.
+- **Steady-state fail-closed backoff**: confirmed rejects (`NoMatchingRule`, `ScopeConflict`, `InstanceMismatch`) re-check on the 5-minute periodic interval instead of every 10s.
+- **Long-lived drift is now a condition, not just an expiring Event**: `OrganizationNameDrift` and `BindingContained=False/ForeignOrganization` conditions on the map.
+- **Permission-shaped delegation failures** (`PermissionDenied`/`Unauthenticated`) fail closed as conditions instead of counting as controller errors in metrics.
+- **Delegation Secrets carry human-readable scope annotations** (`zitadel.truvity.io/scope-instance|org|project`).
+- **Known limitation (org-owner):** the binding requires ORG_OWNER in exactly one org — one SA cannot back two org-scoped deployments; use one SA per deployment.
+- Chart: disabling leader election now requires `leaderElection.acknowledgeDisabledRisk=true`; `config.port` string typing documented; `just test-integration` timeout fixed (30m); S-161 scenario text corrected to the implemented earliest-wins semantics.
+
 ### Removed (breaking, INF-428)
 
-- **`defaultOrganizationId` config key removed.** There is no default scope: a namespace either resolves through a `ZitadelScopeMap` or (zero-maps passthrough aside) org-scoped CRs must name their organization explicitly. The operator fails fast at startup when the key is present.
+- **`defaultOrganizationId` config key removed.** There is no default scope: a namespace either resolves through a `ScopeMap` or (zero-maps passthrough aside) org-scoped CRs must name their organization explicitly. The operator fails fast at startup when the key is present.
 - **`projectScopeLabel` config key removed.** Label-value-as-project routing is superseded by scope maps. Fail-fast at startup when present.
 - `watchNamespaces` survives as the coarse informer filter only.
 
 ### Added
 
 - **SSA status discipline (v0.18 prerequisite).** All status writes moved to Server-Side Apply with per-instance field manager `zitadel-operator/<domain>`; `conditions` are `listType=map` keyed by `type`. Fixes the condition-wipe bug found in the prototype (read-modify-write `Status().Update` silently dropped other writers' conditions) and makes two-writer dual-serving possible at all.
-- **`ZitadelScopeMap` CRD + scope resolution (INF-423).** Namespaced CRD evaluated only in the operator's namespace; mandatory `spec.instance` assertion (fail-closed `InstanceMismatch`), selector XOR literal rules, `organizationId`/`projectId` authoritative with name-drift Events, first-match top-down across name-sorted maps, cross-map conflicts fail-closed with Warning Events on both maps, `MapsNotSynced` (transient) distinguished from `NoMatchingRule` (steady-state), zero maps = v0.17 passthrough (rollout gate). **All tenant reconcilers** route through scope resolution; project-scope rules default the project for tenant CRs (recorded in `status.projectId`).
+- **`ScopeMap` CRD + scope resolution (INF-423).** Namespaced CRD evaluated only in the operator's namespace; mandatory `spec.instance` assertion (fail-closed `InstanceMismatch`), selector XOR literal rules, `organizationId`/`projectId` authoritative with name-drift Events, first-match top-down across name-sorted maps, cross-map conflicts fail-closed with Warning Events on both maps, `MapsNotSynced` (transient) distinguished from `NoMatchingRule` (steady-state), zero maps = v0.17 passthrough (rollout gate). **All tenant reconcilers** route through scope resolution; project-scope rules default the project for tenant CRs (recorded in `status.projectId`).
 - **Binding levels (INF-424).** Required `binding: iam-owner | org-owner` config assertion, verified at startup via `AuthService.ListMyMemberships` (crash on mismatch). Under `org-owner`: instance-level resources get `Ready=False / NotSupportedAtBindingLevel`; foreign-org scope maps are rejected with a `ForeignOrganization` Event.
 - **Internal delegation (INF-425).** Per resolved scope the operator mints a scope-limited machine user (explicit `AddMachineUser` + `AddOrgMember(ORG_OWNER)` / project-create + `AddProjectMember(PROJECT_OWNER)`; never `ORG_PROJECT_CREATOR`) and reconciles tenant CRs with the delegated key. Key persisted to a labeled Secret (`zitadel-delegation-<hash>`) in the operator namespace *before* caching; warm restart from Secrets; lazy validity re-check with re-mint; eager revoke when a scope stops matching + periodic orphan GC; internal 90-day dual-key rotation with grace overlap. During deletion, resolution/delegation failure falls back to the binding client so finalizers cannot deadlock.
 - **MachineUser extension (INF-426).** Optional `spec.roles` (user grant on the scope project, synced with drift detection), `spec.key.rotateAfter` + `rotationGrace` (dual-key rotation), key Secret upgraded to a connection bundle (`key.json`, `instanceUrl`, `issuer`, `orgId`, `projectId`, best-effort `instanceId`). Fully backward compatible.
@@ -24,7 +37,7 @@ All notable changes to the zitadel-operator are documented here.
 ### Changed
 
 - **Leader election on by default (INF-427).** `--leader-elect` defaults to true; new `--leader-election-id` flag, set by the Helm chart from the release fullname so two deployments in one namespace get distinct leases.
-- Helm chart: `config.binding` (required), `config.operatorNamespace` (defaults to release namespace), `zitadelscopemaps` RBAC, cluster-wide namespace reader whenever namespaced RBAC mode is used.
+- Helm chart: `config.binding` (required), `config.operatorNamespace` (defaults to release namespace), `scopemaps` RBAC, cluster-wide namespace reader whenever namespaced RBAC mode is used.
 
 ### Fixed
 

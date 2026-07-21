@@ -16,7 +16,7 @@ Condition reasons are stable, documented strings (see the [troubleshooting taxon
 Every controller writes status exclusively via SSA (`applyStatus`), with the field manager
 
 ```
-zitadel-operator/<domain>
+zitadel-operator/<instance identity>   # instanceAlias, default: domain
 ```
 
 so each operator deployment owns only the fields (and condition entries) it writes. Because `conditions` is a `listType=map` keyed by `type`, two managers can each own their own condition entries on the same object without touching the other's.

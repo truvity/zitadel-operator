@@ -94,35 +94,12 @@ func (r *ScopeMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Organization resolution (only meaningful when validation passed).
 	resolvedOrgID := cr.Spec.OrganizationId
 	if ready {
-		var err error
-		resolvedOrgID, err = r.resolveOrganization(ctx, &cr)
-		if err != nil {
-			setCondition(&cr.Status.Conditions, ConditionTypeOrganizationResolved, metav1.ConditionFalse,
-				"OrganizationLookupFailed", err.Error())
-			ready = false
-		} else {
-			setCondition(&cr.Status.Conditions, ConditionTypeOrganizationResolved, metav1.ConditionTrue,
-				"OrganizationResolved", fmt.Sprintf("organization %q resolved to id %s", cr.Spec.Organization, resolvedOrgID))
-		}
+		resolvedOrgID, ready = r.recordOrganizationResolution(ctx, &cr)
 	}
 
-	// INF-424: an org-owner binding may only serve maps for its own org;
-	// a foreign-org map is rejected with an Event and fail-closed.
-	if ready && r.Config != nil && r.Config.Binding == config.BindingOrgOwner &&
-		r.Config.BoundOrganizationId != "" && resolvedOrgID != r.Config.BoundOrganizationId {
-		msg := fmt.Sprintf("map organization %s is foreign to the org-owner binding (bound org %s); all rules fail-closed",
-			resolvedOrgID, r.Config.BoundOrganizationId)
-		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse,
-			"NotSupportedAtBindingLevel", msg)
-		setCondition(&cr.Status.Conditions, ConditionTypeBindingContained, metav1.ConditionFalse,
-			"ForeignOrganization", msg)
-		if r.Recorder != nil {
-			r.Recorder.Event(&cr, corev1.EventTypeWarning, "ForeignOrganization", msg)
-		}
+	// INF-424: an org-owner binding may only serve maps for its own org.
+	if !r.recordBindingContainment(&cr, resolvedOrgID, ready) {
 		ready = false
-	} else if r.Config != nil && r.Config.Binding == config.BindingOrgOwner {
-		setCondition(&cr.Status.Conditions, ConditionTypeBindingContained, metav1.ConditionTrue,
-			"Contained", "map organization is within the org-owner binding")
 	}
 
 	if ready {
@@ -141,6 +118,45 @@ func (r *ScopeMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	r.sweep(ctx)
 
 	return ctrl.Result{RequeueAfter: requeueInterval}, nil
+}
+
+// recordOrganizationResolution resolves the map's org and records the
+// OrganizationResolved condition. Returns the resolved ID and whether the
+// map is still ready.
+func (r *ScopeMapReconciler) recordOrganizationResolution(ctx context.Context, cr *zitadelv1alpha2.ScopeMap) (string, bool) {
+	resolvedOrgID, err := r.resolveOrganization(ctx, cr)
+	if err != nil {
+		setCondition(&cr.Status.Conditions, ConditionTypeOrganizationResolved, metav1.ConditionFalse,
+			"OrganizationLookupFailed", err.Error())
+		return cr.Spec.OrganizationId, false
+	}
+	setCondition(&cr.Status.Conditions, ConditionTypeOrganizationResolved, metav1.ConditionTrue,
+		"OrganizationResolved", fmt.Sprintf("organization %q resolved to id %s", cr.Spec.Organization, resolvedOrgID))
+	return resolvedOrgID, true
+}
+
+// recordBindingContainment enforces the INF-424 org-owner containment rule:
+// a foreign-org map is rejected (BindingContained=False + Ready=False +
+// Warning Event). Returns false when the map must be marked not ready.
+func (r *ScopeMapReconciler) recordBindingContainment(cr *zitadelv1alpha2.ScopeMap, resolvedOrgID string, ready bool) bool {
+	if r.Config == nil || r.Config.Binding != config.BindingOrgOwner || !ready {
+		return true
+	}
+	if r.Config.BoundOrganizationId != "" && resolvedOrgID != r.Config.BoundOrganizationId {
+		msg := fmt.Sprintf("map organization %s is foreign to the org-owner binding (bound org %s); all rules fail-closed",
+			resolvedOrgID, r.Config.BoundOrganizationId)
+		setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse,
+			"NotSupportedAtBindingLevel", msg)
+		setCondition(&cr.Status.Conditions, ConditionTypeBindingContained, metav1.ConditionFalse,
+			"ForeignOrganization", msg)
+		if r.Recorder != nil {
+			r.Recorder.Event(cr, corev1.EventTypeWarning, "ForeignOrganization", msg)
+		}
+		return false
+	}
+	setCondition(&cr.Status.Conditions, ConditionTypeBindingContained, metav1.ConditionTrue,
+		"Contained", "map organization is within the org-owner binding")
+	return true
 }
 
 // validateMap checks instance match and rule invariants, recording conditions.

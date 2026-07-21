@@ -5,6 +5,7 @@ The operator reads a single YAML config file; the only meaningful CLI flag is th
 ```yaml
 # /etc/zitadel-operator/config.yaml
 domain: auth.example.com
+instanceAlias: prod-internal
 binding: iam-owner
 port: "443"
 insecure: false
@@ -20,14 +21,15 @@ watchNamespaces:
 
 | Key | Required | Default | Description |
 | --- | --- | --- | --- |
-| `domain` | yes | — | Zitadel instance domain the operator connects to. Also the operator's identity: the SSA field manager is `zitadel-operator/<domain>`, scope maps must assert this domain in `spec.instance`, and CR-level `spec.instance` pins compare against it. |
+| `domain` | yes | — | Zitadel instance domain the operator connects to. |
+| `instanceAlias` | no | `domain` | Stable logical identity of the bound instance (e.g. `prod-internal`). The SSA field manager is `zitadel-operator/<alias>`, `ScopeMap` objects assert it in `spec.instance`, and CR-level `spec.instance` pins compare against it. Set it before go-live: with an alias, a later domain migration changes only `domain` and cannot orphan pins or managed fields. |
 | `binding` | yes | — | Credential assertion: `iam-owner` or `org-owner`. Verified at startup via `AuthService.ListMyMemberships`; a mismatch in either direction is fatal. See [Binding levels](binding-levels.md). |
-| `port` | no | `"443"` | Zitadel API port (string). |
+| `port` | no | `"443"` | Zitadel API port. **Must be a YAML string** (quoted): a bare `port: 443` fails to parse. |
 | `insecure` | no | `false` | Connect over plain HTTP (no TLS). Local development only. |
 | `externalDomain` | no | — | Split-horizon mode: connect to `domain:port` internally while Zitadel is configured with a different canonical external domain. The operator sends the `x-zitadel-instance-host` header and signs its JWT for the `https://<externalDomain>` audience. |
-| `keyFile` | yes | — | Path to the mounted JWT key JSON of the operator's service account. The Helm chart sets this to `credentials.mountPath`/`credentials.key`. |
-| `operatorNamespace` | no | `$POD_NAMESPACE` | Namespace holding `ZitadelScopeMap` objects and delegation Secrets. The Helm chart defaults it to the release namespace. If neither the key nor `POD_NAMESPACE` resolves, **scope maps are disabled entirely** and the operator runs in passthrough mode. |
-| `watchNamespaces` | no | all namespaces | Coarse informer filter: the operator only caches/watches the listed namespaces. This is *not* semantic routing (that is scope maps) — it bounds visibility and memory. When set, it must include `operatorNamespace`. |
+| `keyFile` | yes | — | Path to the mounted JWT key JSON of the operator's service account (fail-fast when empty). The Helm chart sets this to `credentials.mountPath`/`credentials.key`. |
+| `operatorNamespace` | no | `$POD_NAMESPACE` | Namespace holding `ScopeMap` objects and delegation Secrets. The Helm chart defaults it to the release namespace. If neither the key nor `POD_NAMESPACE` resolves, the operator **fails fast at startup** — a silently disabled routing surface would be fail-permissive. |
+| `watchNamespaces` | no | all namespaces | Coarse informer filter: the operator only caches/watches the listed namespaces. This is *not* semantic routing (that is scope maps) — it bounds visibility and memory. When set, it **must include `operatorNamespace`** (enforced at startup; otherwise map informers could never sync and every scoped CR would sit at `MapsNotSynced`). |
 
 ### Removed keys (fail-fast since v0.18)
 
@@ -35,7 +37,7 @@ The operator refuses to start when either of these appears in the config, with a
 
 | Removed key | Replacement |
 | --- | --- |
-| `defaultOrganizationId` | No default scope exists. Set `organizationId`/`organizationRef` explicitly on org-scoped CRs, or route their namespaces through a [`ZitadelScopeMap`](../operations/scope-maps.md). |
+| `defaultOrganizationId` | No default scope exists. Set `organizationId`/`organizationRef` explicitly on org-scoped CRs, or route their namespaces through a [`ScopeMap`](../operations/scope-maps.md). |
 | `projectScopeLabel` | Scope-map rules (`namespaceSelector`/`namespaces` + `project`). |
 
 ## CLI flags

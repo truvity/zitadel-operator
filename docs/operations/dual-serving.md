@@ -15,7 +15,7 @@ metadata:
   name: billing-admin-dashboard
   namespace: billing
 spec:
-  instance: auth.internal.example.com    # employee operator's domain
+  instance: internal            # employee operator's instanceAlias
   redirectUris: [...]
   secretRef: {name: billing-admin-oidc}
 ---
@@ -25,12 +25,12 @@ metadata:
   name: billing-customer-app
   namespace: billing
 spec:
-  instance: auth.example.com             # customer operator's domain
+  instance: customer            # customer operator's instanceAlias
   redirectUris: [...]
   secretRef: {name: billing-customer-oidc}
 ```
 
-The pin value is the operator's configured `domain`, exactly.
+The pin value is the operator's **instance identity** — its configured `instanceAlias`, or `domain` when no alias is set. Prefer an alias: it survives instance domain migrations without touching a single pin.
 
 ## What happens without a pin
 
@@ -48,7 +48,7 @@ Fix: add `spec.instance`. The pinned operator proceeds on its next reconcile; th
 
 To move a CR from instance A to instance B:
 
-1. Change `spec.instance` from A's domain to B's domain.
+1. Change `spec.instance` from A's identity to B's identity.
 2. Operator A stops touching the CR (its finalizer cleanup for A-side resources is **not** run by repinning — the recorded IDs simply become foreign; delete + recreate the CR instead if you want the A-side resource removed).
 3. Operator B adopts by name or creates fresh, and rewrites the output Secret with B-side credentials.
 
@@ -65,5 +65,5 @@ Starting from a namespace served by operator A only:
 ## Requirements recap
 
 - Distinct instances — dual-serving is not for two operators on the *same* instance (keep those on disjoint namespaces).
-- Both operators at v0.18+ (SSA status discipline; distinct `zitadel-operator/<domain>` field managers).
+- Both operators at v0.18+ (SSA status discipline; distinct `zitadel-operator/<instance identity>` field managers).
 - Leader election on with per-release lease IDs (chart default).

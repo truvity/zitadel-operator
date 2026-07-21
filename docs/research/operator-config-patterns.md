@@ -7,7 +7,7 @@ this document records the comparative survey and the verdict.
 
 ## Verdict
 
-**Namespaced CRD (`ZitadelScopeMap`), living in the operator's namespace.
+**Namespaced CRD (`ScopeMap`), living in the operator's namespace.
 Not ConfigMaps.**
 
 1. **Zero precedent.** None of the surveyed operators uses ConfigMaps for
@@ -113,7 +113,7 @@ is delegable; minting new maps is not.
 
 | Decision | Grounding |
 | --- | --- |
-| `ZitadelScopeMap` = namespaced CRD in the operator namespace | ArgoCD AppProject, ESO SecretStore, Crossplane ProviderConfig; zero CM precedent |
+| `ScopeMap` = namespaced CRD in the operator namespace | ArgoCD AppProject, ESO SecretStore, Crossplane ProviderConfig; zero CM precedent |
 | Namespace labels are facts, never routing authority | Capsule CVE-2025-55205 |
 | Map create admin-only, maintenance delegated via `resourceNames` | kubernetes#80295 |
 | Single writer within a managed scope, drift detection on | Keycloak lesson |

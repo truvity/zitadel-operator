@@ -2,7 +2,7 @@
 
 v0.18 replaces the two implicit routing mechanisms (`defaultOrganizationId`,
 `projectScopeLabel`) with an explicit, delegable, fail-closed model:
-**scope maps** (`ZitadelScopeMap`) route tenant namespaces to Zitadel scopes,
+**scope maps** (`ScopeMap`) route tenant namespaces to Zitadel scopes,
 and the operator reconciles each mapped namespace with an internally minted,
 scope-limited credential (**internal delegation**). How it works:
 [Scope resolution](architecture/scope-resolution.md) and
@@ -15,10 +15,10 @@ The operator **fails fast at startup** when a removed key is present.
 
 | v0.17 key | v0.18 replacement |
 | --- | --- |
-| `defaultOrganizationId` | **Removed — no default scope exists.** Either set `organizationId`/`organizationRef` explicitly on org-scoped CRs, or route the namespace through a `ZitadelScopeMap` (the scope supplies the organization). |
+| `defaultOrganizationId` | **Removed — no default scope exists.** Either set `organizationId`/`organizationRef` explicitly on org-scoped CRs, or route the namespace through a `ScopeMap` (the scope supplies the organization). |
 | `projectScopeLabel` | **Removed.** Label-value-as-project-name routing is superseded by scope-map rules (`namespaceSelector`/`namespaces` + `project`). |
 | — | `binding: iam-owner \| org-owner` is **required**. It asserts what the mounted credential is; the operator verifies it via `AuthService.ListMyMemberships` at startup and crashes on mismatch. |
-| — | `operatorNamespace` (optional; falls back to `POD_NAMESPACE`). Namespace holding `ZitadelScopeMap` objects and delegation Secrets. Unset ⇒ scope maps disabled (passthrough). |
+| — | `operatorNamespace` (optional; falls back to `POD_NAMESPACE`). Namespace holding `ScopeMap` objects and delegation Secrets. Unset ⇒ scope maps disabled (passthrough). |
 
 `watchNamespaces` survives unchanged as the optional coarse informer filter —
 semantic routing is scope maps only. The operator's own namespace must be
@@ -48,7 +48,7 @@ included when `watchNamespaces` is set.
 
    ```yaml
    apiVersion: zitadel.truvity.io/v1alpha2
-   kind: ZitadelScopeMap
+   kind: ScopeMap
    metadata:
      name: acme-corp
      namespace: zitadel-operator          # operator's own namespace
@@ -64,7 +64,7 @@ included when `watchNamespaces` is set.
          project: acme-platform           # project scope; omit for org scope
    ```
 
-4. **Rollout gate**: with **zero** `ZitadelScopeMap` objects the operator
+4. **Rollout gate**: with **zero** `ScopeMap` objects the operator
    behaves exactly like v0.17 minus the removed keys (passthrough). Strict
    fail-closed routing begins when the first map appears — from that moment a
    namespace matching no rule is rejected (`ScopeResolved=False /
@@ -78,7 +78,8 @@ included when `watchNamespaces` is set.
 ## Behavioral changes to be aware of
 
 - **All status writes use Server-Side Apply** with field manager
-  `zitadel-operator/<domain>`; conditions are `listType=map`. Third-party
+  `zitadel-operator/<instance identity>` (`instanceAlias`, default `domain`);
+  conditions are `listType=map`. Third-party
   conditions on operator-managed CRs now survive operator writes.
 - **Leader election is on by default** (`--leader-elect=true`); the Helm chart
   passes `--leader-election-id=<fullname>`.

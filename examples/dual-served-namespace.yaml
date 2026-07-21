@@ -1,0 +1,31 @@
+# One namespace served by two operators (different Zitadel instances).
+# Every CR carries a spec.instance pin naming the owning operator's
+# instanceAlias; unpinned CRs in a dual-served namespace fail closed with
+# AmbiguousInstance on both sides.
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: OIDCApp
+metadata:
+  name: admin-dashboard                  # employee-facing
+  namespace: billing
+spec:
+  instance: internal                     # employee operator's instanceAlias
+  type: confidential
+  authMethod: basic
+  redirectUris:
+    - https://admin.billing.example.com/callback
+  secretRef:
+    name: admin-dashboard-oidc
+---
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: OIDCApp
+metadata:
+  name: customer-portal                  # customer-facing
+  namespace: billing
+spec:
+  instance: customer                     # customer operator's instanceAlias
+  type: confidential
+  authMethod: basic
+  redirectUris:
+    - https://billing.example.com/callback
+  secretRef:
+    name: customer-portal-oidc

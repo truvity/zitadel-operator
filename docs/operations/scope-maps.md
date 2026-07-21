@@ -1,12 +1,12 @@
 # Scope-Map Administration & Delegation
 
-`ZitadelScopeMap` objects are the routing surface of the operator: they decide which Zitadel scope each tenant namespace reconciles into. This guide covers day-2 administration — creating maps, delegating their maintenance to teams with narrowly scoped RBAC, rollout, and decommissioning. Semantics (rule matching, fail-closed taxonomy) live in [Scope resolution](../architecture/scope-resolution.md).
+`ScopeMap` objects are the routing surface of the operator: they decide which Zitadel scope each tenant namespace reconciles into. This guide covers day-2 administration — creating maps, delegating their maintenance to teams with narrowly scoped RBAC, rollout, and decommissioning. Semantics (rule matching, fail-closed taxonomy) live in [Scope resolution](../architecture/scope-resolution.md).
 
 ## Ground rules
 
 - Maps live **only in the operator's namespace** (`operatorNamespace`); anywhere else they are inert.
 - One map per Zitadel **organization** is the intended granularity — the map name identifies the org it serves, which is what makes per-map RBAC delegation meaningful.
-- Every map must assert `spec.instance` = the operator's domain. Wrong instance ⇒ the whole map is fail-closed (`InstanceMismatch`).
+- Every map must assert `spec.instance` = the operator's instance identity (its `instanceAlias`, or `domain` when no alias is set). Wrong instance ⇒ the whole map is fail-closed (`InstanceMismatch`).
 - Map **creation stays admin-only**; per-map **maintenance is delegable** (see below).
 - Namespace labels used by selector rules are GitOps-stamped facts. Never let a tenant team write the labels that route its own namespaces.
 
@@ -14,12 +14,12 @@
 
 ```yaml
 apiVersion: zitadel.truvity.io/v1alpha2
-kind: ZitadelScopeMap
+kind: ScopeMap
 metadata:
   name: acme-corp                        # convention: the org it serves
   namespace: zitadel-operator
 spec:
-  instance: auth.example.com             # must match the operator's domain
+  instance: prod-internal                # the operator's instanceAlias (or domain)
   organization: Acme Corp
   organizationId: "325908855630427886"   # recommended: pin the ID (authoritative)
   rules:
@@ -34,17 +34,18 @@ spec:
 
 Recommendations:
 
-- **Pin `organizationId`.** With only a name, the map controller must resolve it (transient `ScopeMapNotReady` until it does), and an org rename in Zitadel changes what the map means. With the ID pinned, a renamed org merely produces `OrganizationNameDrift` Events.
-- **Prefer selector rules for fleets, literal rules for exceptions.** A selector rule absorbs new namespaces automatically as GitOps stamps labels; literal rules pin exact names (and are the only place `projectId` may be used).
+- **Pin `organizationId`.** With only a name, the map controller must resolve it (transient `ScopeMapNotReady` until it does), and an org rename in Zitadel changes what the map means. With the ID pinned, a renamed org merely produces an `OrganizationNameDrift` condition (plus a Warning Event) on the map.
+- **Prefer selector rules for fleets, literal rules for exceptions.** A selector rule absorbs new namespaces automatically as GitOps stamps labels; literal rules pin exact names.
+- **Names are for humans, IDs for machines.** `organizationId`/`projectId` are authoritative when set; the paired name is then optional and informational (a set-but-different org name surfaces as an `OrganizationNameDrift` condition + Event). At least one of `organization`/`organizationId` is required; a rule may use `projectId` with or without a `project` name.
 - Rule order matters within a map (first match top-down), and maps are evaluated name-sorted. Keep one namespace matched by exactly one rule in exactly one map — cross-map matches are conflicts, fail-closed on both maps with Warning Events.
 
 Verify:
 
 ```bash
-kubectl -n zitadel-operator get zitadelscopemaps
+kubectl -n zitadel-operator get scopemaps
 # NAME        INSTANCE            ORGANIZATION   READY
 # acme-corp   auth.example.com    Acme Corp      true
-kubectl -n zitadel-operator describe zitadelscopemap acme-corp   # conditions + Events
+kubectl -n zitadel-operator describe scopemap acme-corp   # conditions + Events
 ```
 
 ## Delegating map maintenance to a team
@@ -64,11 +65,11 @@ metadata:
   namespace: zitadel-operator            # the operator's namespace
 rules:
   - apiGroups: ["zitadel.truvity.io"]
-    resources: ["zitadelscopemaps"]
+    resources: ["scopemaps"]
     resourceNames: ["acme-corp"]
     verbs: ["get", "update", "patch"]
   - apiGroups: ["zitadel.truvity.io"]
-    resources: ["zitadelscopemaps"]
+    resources: ["scopemaps"]
     verbs: ["list", "watch"]             # list/watch cannot be name-scoped;
                                          # grants visibility of map names/specs only
 ---
@@ -87,14 +88,14 @@ subjects:
     apiGroup: rbac.authorization.k8s.io
 ```
 
-What the team can now do: edit `acme-corp`'s rules (add/remove namespaces, change projects) and read its status/conditions. What it cannot do: create new maps, delete the map, touch any other org's map, or touch anything else in the operator namespace. If `list` across maps is too much visibility, drop the second rule — `kubectl get zitadelscopemap acme-corp` (a name-scoped `get`) still works.
+What the team can now do: edit `acme-corp`'s rules (add/remove namespaces, change projects) and read its status/conditions. What it cannot do: create new maps, delete the map, touch any other org's map, or touch anything else in the operator namespace. If `list` across maps is too much visibility, drop the second rule — `kubectl get scopemap acme-corp` (a name-scoped `get`) still works.
 
 ### Recipe: read-only auditors
 
 ```yaml
 rules:
   - apiGroups: ["zitadel.truvity.io"]
-    resources: ["zitadelscopemaps"]
+    resources: ["scopemaps"]
     verbs: ["get", "list", "watch"]
 ```
 
@@ -106,7 +107,7 @@ Note for SSA-based appliers (Argo CD server-side apply, Flux): `resourceNames`-s
 
 ## Rollout: from zero maps to routed
 
-The zero-maps state is **passthrough** (pre-v0.18 behavior), so rollout is incremental, org by org — but the **first map you create ends passthrough for every namespace the operator serves**: from that moment, any namespace matching no rule is fail-closed (`NoMatchingRule`).
+The zero-maps state is **passthrough** (pre-v0.18 behavior), so rollout is incremental, org by org — but the **first map you create ends passthrough for every namespace the operator serves**: from that moment, any namespace matching no rule is fail-closed (`NoMatchingRule`; confirmed rejects re-check on the 5-minute periodic interval — spec edits still reconcile immediately).
 
 1. Inventory the namespaces the operator serves (check `watchNamespaces`, or all namespaces in cluster mode) and every org/project their CRs use.
 2. Write maps covering **all** of them — not just the first org you care about.

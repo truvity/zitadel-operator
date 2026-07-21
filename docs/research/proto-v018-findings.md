@@ -15,14 +15,14 @@ golangci-lint run ./...                                                         
 
 Implemented:
 
-- `api/v1alpha2/zitadelscopemap_types.go` — namespaced `ZitadelScopeMap`
+- `api/v1alpha2/scopemap_types.go` — namespaced `ScopeMap`
   (instance, organization + optional organizationId, rules[] with
   namespaceSelector XOR namespaces[], optional project/projectId).
 - `internal/scopemap/resolver.go` — first-match top-down per map, evaluated
   across all maps in the operator namespace (maps sorted by name for
   determinism); typed error taxonomy: `ErrMapsNotSynced`, `NoMatchError`,
   `ConflictError`, `InstanceMismatchError`, `MapNotReadyError`.
-- `internal/controller/zitadelscopemap_controller.go` — validates instance
+- `internal/controller/scopemap_controller.go` — validates instance
   match (InstanceMatch condition), rule invariants, resolves org by
   name when no ID (`status.resolvedOrganizationId`), emits
   `OrganizationNameDrift` Event when spec ID and name disagree.
@@ -46,7 +46,7 @@ Evidence (integration, real Zitadel + envtest):
 
 1. **Rollout gate: zero maps = passthrough.** With strict "no rule =
    fail-closed", installing the CRD is a flag-day for every namespace the
-   operator serves. Prototype behavior: no `ZitadelScopeMap` objects in the
+   operator serves. Prototype behavior: no `ScopeMap` objects in the
    operator namespace → legacy binding-client path (all pre-v0.18 tests pass
    unchanged with the resolver wired in). v0.18 needs an explicit
    enablement story (config flag or this gate) — decide before GA.
@@ -175,10 +175,10 @@ what the prototype did hit:
 
 ## Files
 
-- `api/v1alpha2/zitadelscopemap_types.go` (+ generated deepcopy/CRD/chart copy)
+- `api/v1alpha2/scopemap_types.go` (+ generated deepcopy/CRD/chart copy)
 - `internal/scopemap/resolver.go`, `internal/scopemap/resolver_test.go`
 - `internal/delegation/manager.go`
-- `internal/controller/zitadelscopemap_controller.go`
+- `internal/controller/scopemap_controller.go`
 - `internal/controller/scope_resolution.go`
 - `internal/controller/oidcapp_controller.go` (wired), `internal/config/config.go`
   (`operatorNamespace` gate), `cmd/operator/main.go` (wiring)

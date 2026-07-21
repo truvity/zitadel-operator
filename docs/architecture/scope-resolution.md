@@ -1,19 +1,19 @@
 # Scope Resolution
 
-Scope resolution answers one question per tenant CR: **which Zitadel scope — `(organization)` or `(organization, project)` — does this CR's namespace belong to, and with which credential is it reconciled?** The answer is computed from `ZitadelScopeMap` objects and is deliberately fail-closed: a namespace that maps nowhere is rejected, never defaulted.
+Scope resolution answers one question per tenant CR: **which Zitadel scope — `(organization)` or `(organization, project)` — does this CR's namespace belong to, and with which credential is it reconciled?** The answer is computed from `ScopeMap` objects and is deliberately fail-closed: a namespace that maps nowhere is rejected, never defaulted.
 
-## ZitadelScopeMap
+## ScopeMap
 
-A namespaced CRD, evaluated **only in the operator's namespace** (`operatorNamespace`) — the map's location is part of its authority. Field reference: [API reference — ZitadelScopeMap](../reference/api.md#zitadelscopemap).
+A namespaced CRD, evaluated **only in the operator's namespace** (`operatorNamespace`) — the map's location is part of its authority. Field reference: [API reference — ScopeMap](../reference/api.md#scopemap).
 
 ```yaml
 apiVersion: zitadel.truvity.io/v1alpha2
-kind: ZitadelScopeMap
+kind: ScopeMap
 metadata:
   name: acme-corp
   namespace: zitadel-operator            # must be the operator's namespace
 spec:
-  instance: auth.example.com             # REQUIRED — must match the operator's domain
+  instance: prod-internal                # REQUIRED — the operator's instance identity (instanceAlias, default domain)
   organization: Acme Corp
   organizationId: "325908855630427886"   # optional; authoritative when set
   rules:
@@ -31,7 +31,7 @@ Semantics:
 
 - **`spec.instance` (required)** — every map asserts which instance it belongs to. A mismatch with the operator's `domain` marks the map `InstanceMatch=False / InstanceMismatch` and fail-closes every namespace it would serve. This guards against a map landing in the wrong operator's namespace: two operators' routing surfaces cannot cross-contaminate.
 - **`spec.organization` + optional `spec.organizationId`** — the ID is authoritative when present; a disagreeing name is reported as an `OrganizationNameDrift` Event, not an error. Without an ID, the scope-map controller resolves the name and records `status.resolvedOrganizationId` (the resolver itself never calls Zitadel). A matched map without a resolved org yet is `ScopeMapNotReady` — transient.
-- **`rules[]`** — ordered; each rule is `namespaceSelector` XOR `namespaces[]`, plus an optional `project` (a `projectId` pin is allowed only alongside a literal `project` name). No project = org scope. **First match top-down wins**, evaluated across all maps in the operator namespace with maps sorted by name for determinism.
+- **`rules[]`** — ordered; each rule is `namespaceSelector` XOR `namespaces[]`, plus optional `project`/`projectId` in any combination (the ID is authoritative when set; a bare name is resolved/created on first use). No project = org scope. **First match top-down wins**, evaluated across all maps in the operator namespace with maps sorted by name for determinism.
 - A namespace matching rules in **two different maps** is a conflict: fail-closed with `ScopeConflict` and Warning Events on **both** maps.
 
 ### Labels are facts, not routing config
@@ -55,7 +55,7 @@ For a tenant CR's namespace, resolution returns exactly one of:
 
 Distinguishing `MapsNotSynced` from `NoMatchingRule` is load-bearing: collapsing them would turn every operator restart into a spurious rejection storm.
 
-**Zero maps = passthrough** is the rollout gate: installing the CRD is not a flag day. With no `ZitadelScopeMap` objects the operator behaves exactly as pre-v0.18 (binding client, explicit org/project on CRs). Strictness begins the moment the first map appears — from then on, unmapped namespaces are rejected. The same applies when `operatorNamespace` is empty: scope maps are disabled entirely.
+**Zero maps = passthrough** is the rollout gate: installing the CRD is not a flag day. With no `ScopeMap` objects the operator behaves exactly as pre-v0.18 (binding client, explicit org/project on CRs). Strictness begins the moment the first map appears — from then on, unmapped namespaces are rejected. The same applies when `operatorNamespace` is empty: scope maps are disabled entirely.
 
 ## Scope-defaulted organization and project
 
@@ -85,7 +85,7 @@ Strict fail-closed would deadlock finalizers when maps or delegates disappear be
 | Concern | Code |
 | --- | --- |
 | Rule evaluation, error taxonomy | `internal/scopemap/resolver.go` |
-| Map validation, org resolution, Events | `internal/controller/zitadelscopemap_controller.go` |
+| Map validation, org resolution, Events | `internal/controller/scopemap_controller.go` |
 | Per-CR resolution + delegated client injection (`tenantPreamble`) | `internal/controller/scope_resolution.go` |
 | Delegate mint/rotate/revoke | `internal/delegation/` ([architecture](delegation.md)) |
 

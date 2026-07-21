@@ -5,7 +5,7 @@ This guide is for the "one platform, many companies" shape: a single Zitadel ins
 ## Recommended shape
 
 - **One `iam-owner` operator per Zitadel instance**, in a locked-down operator namespace. Scope maps — not extra operators — carry the multi-tenancy: one map per organization, delegated per-scope credentials doing the actual reconciliation.
-- **One `ZitadelScopeMap` per organization**, named after the org, maintained by that org's platform contacts via [`resourceNames` RBAC](scope-maps.md#delegating-map-maintenance-to-a-team).
+- **One `ScopeMap` per organization**, named after the org, maintained by that org's platform contacts via [`resourceNames` RBAC](scope-maps.md#delegating-map-maintenance-to-a-team).
 - **Selector rules driven by GitOps-stamped namespace labels** (`tenancy.example.com/company: acme`), so onboarding a namespace is a label in the namespace factory, not a map edit.
 - **Project scopes for app namespaces**, org scopes only for namespaces that genuinely manage org-wide state (policies, IdPs, users).
 
@@ -21,7 +21,7 @@ Why not operator-per-org? An `org-owner` operator per organization multiplies de
 ## Onboarding a tenant (runbook)
 
 1. **Org exists?** Created out-of-band (IaC) or via an `Organization` CR in a platform namespace.
-2. **Map** (admin): create `ZitadelScopeMap <org>` with a selector rule for the tenant's label, `organizationId` pinned. Optionally bind the tenant's platform group to the [maintainer Role](scope-maps.md#recipe-acmes-platform-team-maintains-acme-corp).
+2. **Map** (admin): create `ScopeMap <org>` with a selector rule for the tenant's label, `organizationId` pinned. Optionally bind the tenant's platform group to the [maintainer Role](scope-maps.md#recipe-acmes-platform-team-maintains-acme-corp).
 3. **Namespaces** (namespace factory): stamp the tenancy label; in namespaced RBAC mode also extend `watchNamespaces` + `rbac.namespaces` and upgrade the release.
 4. **Tenant applies CRs** — no `organizationId`/`projectId` boilerplate needed; the scope supplies them.
 
@@ -41,6 +41,7 @@ Singleton knobs worth knowing: delegation GC sweeps every 10 minutes; delegate k
 ## Operational guardrails
 
 - **Protect the operator namespace.** It holds the binding credential (IAM_OWNER), every delegation Secret, and the routing surface. Admission-restrict who can create anything there; scope maps are the only object tenants' representatives should touch, via `resourceNames`.
+- **Alert from the standard controller-runtime metrics** — see the [metrics reference](metrics.md) for the families and starting alert rules.
 - **Watch for `ScopeConflict` Events** on maps — the signal that two orgs' rules claim one namespace. Fail-closed protects you, but the fix (tightening selectors) is on the platform team.
 - **Alert on `MapsNotSynced` persisting** beyond startup and on `DelegationFailed` conditions — both indicate the platform side (informers, Zitadel availability, permissions) rather than tenant error.
 - **Pin `organizationId` in every map.** At fleet scale, name-only maps make org renames a routing event; ID-pinned maps make them a cosmetic drift Event.

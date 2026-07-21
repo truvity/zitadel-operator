@@ -49,9 +49,9 @@ Package v1alpha2 contains API Schema definitions for the zitadel.truvity.io v1al
 - [ProjectGrantMember](#projectgrantmember)
 - [ProjectMember](#projectmember)
 - [SAMLApp](#samlapp)
+- [ScopeMap](#scopemap)
 - [SmsProvider](#smsprovider)
 - [UserGrant](#usergrant)
-- [ZitadelScopeMap](#zitadelscopemap)
 
 
 
@@ -87,7 +87,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR managed by this operator.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
 | `projectId` _string_ | ProjectId references a pre-existing Zitadel project by raw ID.<br />Mutually exclusive with ProjectRef. |  | Optional: \{\} <br /> |
 | `name` _string_ | Name is the display name of the application in Zitadel.<br />If empty, the Kubernetes resource name is used. |  | Optional: \{\} <br /> |
@@ -335,7 +335,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR managed by this operator.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
 | `projectId` _string_ | ProjectId references a pre-existing Zitadel project by raw ID.<br />Mutually exclusive with ProjectRef. |  | Optional: \{\} <br /> |
 | `appRef` _[ResourceRef](#resourceref)_ | AppRef references an OIDCApp or APIApp CR managed by this operator.<br />Mutually exclusive with AppId. |  | Optional: \{\} <br /> |
@@ -519,8 +519,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `maxPasswordAttempts` _integer_ |  |  |  |
-| `maxOtpAttempts` _integer_ |  |  | Optional: \{\} <br /> |
+| `maxPasswordAttempts` _integer_ | MaxPasswordAttempts is the number of failed password attempts before<br />the account is locked. 0 disables password lockout. |  |  |
+| `maxOtpAttempts` _integer_ | MaxOtpAttempts is the number of failed OTP attempts before the account<br />is locked. 0 disables OTP lockout. |  | Optional: \{\} <br /> |
 
 
 #### DefaultLockoutPolicyStatus
@@ -872,11 +872,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `minLength` _integer_ |  |  | Minimum: 1 <br /> |
-| `hasLowercase` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasUppercase` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasNumber` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasSymbol` _boolean_ |  |  | Optional: \{\} <br /> |
+| `minLength` _integer_ | MinLength is the minimum password length in characters. |  | Minimum: 1 <br /> |
+| `hasLowercase` _boolean_ | HasLowercase requires at least one lowercase letter. |  | Optional: \{\} <br /> |
+| `hasUppercase` _boolean_ | HasUppercase requires at least one uppercase letter. |  | Optional: \{\} <br /> |
+| `hasNumber` _boolean_ | HasNumber requires at least one digit. |  | Optional: \{\} <br /> |
+| `hasSymbol` _boolean_ | HasSymbol requires at least one symbol character. |  | Optional: \{\} <br /> |
 
 
 #### DefaultPasswordComplexityPolicyStatus
@@ -989,7 +989,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `domainName` _string_ | DomainName is the domain to register for the organization (e.g., "example.com"). |  |  |
@@ -1263,7 +1263,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `userName` _string_ | UserName is the login name of the user. |  |  |
@@ -1331,7 +1331,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `name` _string_ | Name is the display name for the identity provider. |  |  |
@@ -1496,7 +1496,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `primaryColor` _string_ | PrimaryColor is the primary brand color (hex, e.g. "#5469d4"). |  | Optional: \{\} <br /> |
@@ -1564,8 +1564,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `maxPasswordAttempts` _integer_ |  |  |  |
-| `maxOtpAttempts` _integer_ |  |  | Optional: \{\} <br /> |
+| `maxPasswordAttempts` _integer_ | MaxPasswordAttempts is the number of failed password attempts before<br />the account is locked. 0 disables password lockout. |  |  |
+| `maxOtpAttempts` _integer_ | MaxOtpAttempts is the number of failed OTP attempts before the account<br />is locked. 0 disables OTP lockout. |  | Optional: \{\} <br /> |
 
 
 #### LockoutPolicySpec
@@ -1581,11 +1581,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
-| `maxPasswordAttempts` _integer_ |  |  |  |
-| `maxOtpAttempts` _integer_ |  |  | Optional: \{\} <br /> |
+| `maxPasswordAttempts` _integer_ | MaxPasswordAttempts is the number of failed password attempts before<br />the account is locked. 0 disables password lockout. |  |  |
+| `maxOtpAttempts` _integer_ | MaxOtpAttempts is the number of failed OTP attempts before the account<br />is locked. 0 disables OTP lockout. |  | Optional: \{\} <br /> |
 
 
 #### LockoutPolicyStatus
@@ -1632,6 +1632,7 @@ It manages an org-scoped login policy (ORG_OWNER, Management API).
 
 
 LoginPolicyFields contains fields shared between LoginPolicy (org) and DefaultLoginPolicy (instance).
+Unset (nil) booleans leave the corresponding Zitadel setting unchanged.
 
 
 
@@ -1640,21 +1641,21 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `userLogin` _boolean_ |  |  |  |
-| `allowExternalIdp` _boolean_ |  |  |  |
-| `allowRegister` _boolean_ |  |  |  |
-| `forceMfa` _boolean_ |  |  |  |
-| `forceMfaLocalOnly` _boolean_ |  |  |  |
-| `hidePasswordReset` _boolean_ |  |  |  |
-| `passwordlessType` _string_ |  |  | Enum: [not_allowed allowed] <br />Optional: \{\} <br /> |
-| `allowDomainDiscovery` _boolean_ |  |  |  |
-| `ignoreUnknownUsernames` _boolean_ |  |  |  |
-| `defaultRedirectUri` _string_ |  |  |  |
-| `passwordCheckLifetime` _string_ |  |  |  |
-| `externalLoginCheckLifetime` _string_ |  |  |  |
-| `mfaInitSkipLifetime` _string_ |  |  |  |
-| `multiFactorCheckLifetime` _string_ |  |  |  |
-| `secondFactorCheckLifetime` _string_ |  |  |  |
+| `userLogin` _boolean_ | UserLogin allows username/password login. |  |  |
+| `allowExternalIdp` _boolean_ | AllowExternalIdp allows login through configured external identity providers. |  |  |
+| `allowRegister` _boolean_ | AllowRegister allows user self-registration. |  |  |
+| `forceMfa` _boolean_ | ForceMfa requires multi-factor authentication for all users. |  |  |
+| `forceMfaLocalOnly` _boolean_ | ForceMfaLocalOnly requires MFA only for local (non-IdP) authentication. |  |  |
+| `hidePasswordReset` _boolean_ | HidePasswordReset hides the password-reset link on the login form. |  |  |
+| `passwordlessType` _string_ | PasswordlessType enables passwordless (passkey) login. |  | Enum: [not_allowed allowed] <br />Optional: \{\} <br /> |
+| `allowDomainDiscovery` _boolean_ | AllowDomainDiscovery enables org discovery by the domain suffix of the login name. |  |  |
+| `ignoreUnknownUsernames` _boolean_ | IgnoreUnknownUsernames shows the password step even for unknown users (user-enumeration hardening). |  |  |
+| `defaultRedirectUri` _string_ | DefaultRedirectUri is where users land after login when no app context exists. |  |  |
+| `passwordCheckLifetime` _string_ | PasswordCheckLifetime is how long a password check stays valid (Go/Zitadel duration string, e.g. "240h"). |  |  |
+| `externalLoginCheckLifetime` _string_ | ExternalLoginCheckLifetime is how long an external IdP login stays valid (duration string). |  |  |
+| `mfaInitSkipLifetime` _string_ | MfaInitSkipLifetime is how long users may postpone MFA setup (duration string; "0s" = no skip). |  |  |
+| `multiFactorCheckLifetime` _string_ | MultiFactorCheckLifetime is how long a multi-factor check stays valid (duration string). |  |  |
+| `secondFactorCheckLifetime` _string_ | SecondFactorCheckLifetime is how long a second-factor check stays valid (duration string). |  |  |
 
 
 #### LoginPolicySpec
@@ -1670,24 +1671,24 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
-| `userLogin` _boolean_ |  |  |  |
-| `allowExternalIdp` _boolean_ |  |  |  |
-| `allowRegister` _boolean_ |  |  |  |
-| `forceMfa` _boolean_ |  |  |  |
-| `forceMfaLocalOnly` _boolean_ |  |  |  |
-| `hidePasswordReset` _boolean_ |  |  |  |
-| `passwordlessType` _string_ |  |  | Enum: [not_allowed allowed] <br />Optional: \{\} <br /> |
-| `allowDomainDiscovery` _boolean_ |  |  |  |
-| `ignoreUnknownUsernames` _boolean_ |  |  |  |
-| `defaultRedirectUri` _string_ |  |  |  |
-| `passwordCheckLifetime` _string_ |  |  |  |
-| `externalLoginCheckLifetime` _string_ |  |  |  |
-| `mfaInitSkipLifetime` _string_ |  |  |  |
-| `multiFactorCheckLifetime` _string_ |  |  |  |
-| `secondFactorCheckLifetime` _string_ |  |  |  |
+| `userLogin` _boolean_ | UserLogin allows username/password login. |  |  |
+| `allowExternalIdp` _boolean_ | AllowExternalIdp allows login through configured external identity providers. |  |  |
+| `allowRegister` _boolean_ | AllowRegister allows user self-registration. |  |  |
+| `forceMfa` _boolean_ | ForceMfa requires multi-factor authentication for all users. |  |  |
+| `forceMfaLocalOnly` _boolean_ | ForceMfaLocalOnly requires MFA only for local (non-IdP) authentication. |  |  |
+| `hidePasswordReset` _boolean_ | HidePasswordReset hides the password-reset link on the login form. |  |  |
+| `passwordlessType` _string_ | PasswordlessType enables passwordless (passkey) login. |  | Enum: [not_allowed allowed] <br />Optional: \{\} <br /> |
+| `allowDomainDiscovery` _boolean_ | AllowDomainDiscovery enables org discovery by the domain suffix of the login name. |  |  |
+| `ignoreUnknownUsernames` _boolean_ | IgnoreUnknownUsernames shows the password step even for unknown users (user-enumeration hardening). |  |  |
+| `defaultRedirectUri` _string_ | DefaultRedirectUri is where users land after login when no app context exists. |  |  |
+| `passwordCheckLifetime` _string_ | PasswordCheckLifetime is how long a password check stays valid (Go/Zitadel duration string, e.g. "240h"). |  |  |
+| `externalLoginCheckLifetime` _string_ | ExternalLoginCheckLifetime is how long an external IdP login stays valid (duration string). |  |  |
+| `mfaInitSkipLifetime` _string_ | MfaInitSkipLifetime is how long users may postpone MFA setup (duration string; "0s" = no skip). |  |  |
+| `multiFactorCheckLifetime` _string_ | MultiFactorCheckLifetime is how long a multi-factor check stays valid (duration string). |  |  |
+| `secondFactorCheckLifetime` _string_ | SecondFactorCheckLifetime is how long a second-factor check stays valid (duration string). |  |  |
 | `disableLoginWithEmail` _boolean_ | DisableLoginWithEmail disables login using email addresses. |  | Optional: \{\} <br /> |
 | `disableLoginWithPhone` _boolean_ | DisableLoginWithPhone disables login using phone numbers. |  | Optional: \{\} <br /> |
 | `secondFactors` _string array_ | SecondFactors is the list of allowed second factor types. |  | Optional: \{\} <br /> |
@@ -1781,7 +1782,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `userName` _string_ | UserName is the login name for the machine user. |  |  |
@@ -1877,7 +1878,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `type` _string_ | Type is the message type. |  | Enum: [init passwordReset verifyEmail verifyPhone verifySmsOtp verifyEmailOtp domainClaimed passwordlessRegistration passwordChange inviteUser] <br /> |
@@ -1960,7 +1961,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `passwordChange` _boolean_ | PasswordChange determines whether a notification is sent on password change. |  | Optional: \{\} <br /> |
@@ -2017,17 +2018,17 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR managed by this operator.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
 | `projectId` _string_ | ProjectId references a pre-existing Zitadel project by raw ID.<br />Mutually exclusive with ProjectRef. |  | Optional: \{\} <br /> |
 | `name` _string_ | Name is the display name of the application in Zitadel.<br />If empty, the Kubernetes resource name is used. |  | Optional: \{\} <br /> |
 | `type` _string_ | Type is the OIDC application type. |  | Enum: [confidential public] <br /> |
 | `authMethod` _string_ | AuthMethod is the authentication method. |  | Enum: [basic none] <br /> |
-| `redirectUris` _string array_ | RedirectUris is the list of allowed redirect URIs. |  |  |
-| `postLogoutRedirectUris` _string array_ | PostLogoutRedirectUris is the list of allowed post-logout redirect URIs. |  | Optional: \{\} <br /> |
-| `accessTokenType` _string_ | AccessTokenType specifies the access token format. |  | Enum: [bearer jwt] <br />Optional: \{\} <br /> |
-| `accessTokenRoleAssertion` _boolean_ | AccessTokenRoleAssertion determines whether roles are included in the access token. |  | Optional: \{\} <br /> |
-| `idTokenRoleAssertion` _boolean_ | IdTokenRoleAssertion determines whether roles are included in the ID token. |  | Optional: \{\} <br /> |
+| `redirectUris` _string array_ | RedirectUris is the exact, ordered list of allowed OAuth2/OIDC redirect<br />URIs. The operator is the single writer: server-side drift (added or<br />removed entries) is reverted to this list on every reconcile. Zitadel<br />requires https:// URIs unless the app has dev mode enabled. |  |  |
+| `postLogoutRedirectUris` _string array_ | PostLogoutRedirectUris is the list of allowed URIs to return users to<br />after logout (RP-initiated logout). Drift-corrected like RedirectUris. |  | Optional: \{\} <br /> |
+| `accessTokenType` _string_ | AccessTokenType selects the access token format: "bearer" (opaque,<br />default) or "jwt" (self-contained, locally verifiable). |  | Enum: [bearer jwt] <br />Optional: \{\} <br /> |
+| `accessTokenRoleAssertion` _boolean_ | AccessTokenRoleAssertion includes the user's project role claims in<br />the access token. |  | Optional: \{\} <br /> |
+| `idTokenRoleAssertion` _boolean_ | IdTokenRoleAssertion includes the user's project role claims in the ID token. |  | Optional: \{\} <br /> |
 | `secretRef` _[SecretRefSpec](#secretrefspec)_ | SecretRef references the Secret where the client credentials will be stored. |  |  |
 
 
@@ -2105,7 +2106,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `userRef` _[ResourceRef](#resourceref)_ | UserRef references a MachineUser or HumanUser CR. |  | Optional: \{\} <br /> |
@@ -2164,7 +2165,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `key` _string_ | Key is the metadata key. |  |  |
@@ -2294,7 +2295,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `maxAgeDays` _integer_ | MaxAgeDays is the maximum number of days a password can be used before it must be changed.<br />0 means no expiration. |  |  |
@@ -2354,11 +2355,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `minLength` _integer_ |  |  | Minimum: 1 <br /> |
-| `hasLowercase` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasUppercase` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasNumber` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasSymbol` _boolean_ |  |  | Optional: \{\} <br /> |
+| `minLength` _integer_ | MinLength is the minimum password length in characters. |  | Minimum: 1 <br /> |
+| `hasLowercase` _boolean_ | HasLowercase requires at least one lowercase letter. |  | Optional: \{\} <br /> |
+| `hasUppercase` _boolean_ | HasUppercase requires at least one uppercase letter. |  | Optional: \{\} <br /> |
+| `hasNumber` _boolean_ | HasNumber requires at least one digit. |  | Optional: \{\} <br /> |
+| `hasSymbol` _boolean_ | HasSymbol requires at least one symbol character. |  | Optional: \{\} <br /> |
 
 
 #### PasswordComplexityPolicySpec
@@ -2374,14 +2375,14 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
-| `minLength` _integer_ |  |  | Minimum: 1 <br /> |
-| `hasLowercase` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasUppercase` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasNumber` _boolean_ |  |  | Optional: \{\} <br /> |
-| `hasSymbol` _boolean_ |  |  | Optional: \{\} <br /> |
+| `minLength` _integer_ | MinLength is the minimum password length in characters. |  | Minimum: 1 <br /> |
+| `hasLowercase` _boolean_ | HasLowercase requires at least one lowercase letter. |  | Optional: \{\} <br /> |
+| `hasUppercase` _boolean_ | HasUppercase requires at least one uppercase letter. |  | Optional: \{\} <br /> |
+| `hasNumber` _boolean_ | HasNumber requires at least one digit. |  | Optional: \{\} <br /> |
+| `hasSymbol` _boolean_ | HasSymbol requires at least one symbol character. |  | Optional: \{\} <br /> |
 
 
 #### PasswordComplexityPolicyStatus
@@ -2435,7 +2436,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `userRef` _[ResourceRef](#resourceref)_ | UserRef references a MachineUser CR managed by this operator.<br />Mutually exclusive with UserId. |  | Optional: \{\} <br /> |
@@ -2521,7 +2522,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `tosLink` _string_ | TosLink is the URL to the Terms of Service. |  | Optional: \{\} <br /> |
@@ -2622,7 +2623,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR managed by this operator.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
@@ -2664,7 +2665,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR managed by this operator.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
@@ -2725,7 +2726,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR managed by this operator.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
@@ -2766,7 +2767,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `name` _string_ | Name is the display name of the project in Zitadel.<br />If empty, the Kubernetes resource name is used. |  | Optional: \{\} <br /> |
@@ -2871,7 +2872,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `projectRef` _[ResourceRef](#resourceref)_ | ProjectRef references a Project CR managed by this operator.<br />Mutually exclusive with ProjectId. |  | Optional: \{\} <br /> |
 | `projectId` _string_ | ProjectId references a pre-existing Zitadel project by raw ID.<br />Mutually exclusive with ProjectRef. |  | Optional: \{\} <br /> |
 | `name` _string_ | Name is the display name of the application in Zitadel.<br />If empty, the Kubernetes resource name is used. |  | Optional: \{\} <br /> |
@@ -2900,6 +2901,26 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represent the latest available observations of the resource's state. |  |  |
 
 
+#### ScopeMap
+
+
+
+ScopeMap maps tenant namespaces to Zitadel org/project scopes.
+Namespaced; only maps in the operator's own namespace are evaluated.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `zitadel.truvity.io/v1alpha2` | | |
+| `kind` _string_ | `ScopeMap` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[ScopeMapSpec](#scopemapspec)_ |  |  |  |
+| `status` _[ScopeMapStatus](#scopemapstatus)_ |  |  |  |
+
+
 #### ScopeMapRule
 
 
@@ -2910,15 +2931,53 @@ Exactly one of NamespaceSelector or Namespaces must be set.
 
 
 _Appears in:_
-- [ZitadelScopeMapSpec](#zitadelscopemapspec)
+- [ScopeMapSpec](#scopemapspec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name identifies the rule for status reporting and Events. |  |  |
 | `namespaceSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#labelselector-v1-meta)_ | NamespaceSelector selects namespaces by label.<br />Mutually exclusive with Namespaces. |  | Optional: \{\} <br /> |
 | `namespaces` _string array_ | Namespaces is a literal list of namespace names.<br />Mutually exclusive with NamespaceSelector. |  | Optional: \{\} <br /> |
-| `project` _string_ | Project is the Zitadel project name this rule scopes to.<br />When empty, the rule grants org-scope. |  | Optional: \{\} <br /> |
-| `projectId` _string_ | ProjectId pins the Zitadel project by raw ID.<br />Only valid together with a literal Project name. |  | Optional: \{\} <br /> |
+| `project` _string_ | Project is the Zitadel project name this rule scopes to. The project<br />is created on first use when it does not exist. When both Project and<br />ProjectId are empty, the rule grants org-scope.<br />Names are for humans, IDs for machines: when ProjectId is set it is<br />authoritative and Project is informational. |  | Optional: \{\} <br /> |
+| `projectId` _string_ | ProjectId pins the Zitadel project by raw ID (authoritative when set;<br />the project must already exist). May be used with or without a<br />Project name. |  | Optional: \{\} <br /> |
+
+
+#### ScopeMapSpec
+
+
+
+ScopeMapSpec defines the desired state of ScopeMap.
+
+
+
+_Appears in:_
+- [ScopeMap](#scopemap)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `instance` _string_ | Instance is the operator instance identity this map applies to — the<br />operator config's instanceAlias, defaulting to its domain. Must match<br />the serving operator's identity; otherwise the map is fail-closed with<br />an InstanceMismatch condition. |  |  |
+| `organization` _string_ | Organization is the Zitadel organization name. Required when<br />OrganizationId is empty (the map controller resolves the name to an<br />ID); optional and informational when OrganizationId is set. |  | Optional: \{\} <br /> |
+| `organizationId` _string_ | OrganizationId pins the Zitadel organization by raw ID.<br />When set, the ID is authoritative; a differing Organization name is<br />reported as drift (OrganizationNameDrift condition + Event, not an<br />error). At least one of Organization / OrganizationId must be set. |  | Optional: \{\} <br /> |
+| `rules` _[ScopeMapRule](#scopemaprule) array_ | Rules is the ordered rule list. First match top-down wins<br />(evaluated across all maps in the operator namespace). |  | MinItems: 1 <br /> |
+
+
+#### ScopeMapStatus
+
+
+
+ScopeMapStatus defines the observed state of ScopeMap.
+
+
+
+_Appears in:_
+- [ScopeMap](#scopemap)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ready` _boolean_ | Ready indicates the map passed validation (instance match, org resolved). |  |  |
+| `resolvedOrganizationId` _string_ | ResolvedOrganizationId is the org ID resolved from spec<br />(spec.organizationId when set, otherwise looked up by name). |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration is the last generation reconciled. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represent the latest available observations of the map's state. |  |  |
 
 
 #### SecretKeyRef
@@ -3127,7 +3186,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `instance` _string_ | Instance optionally pins this resource to a specific Zitadel instance<br />domain (v0.18 dual-serving). When set to a domain other than this<br />operator's binding, the CR is ignored entirely so the owning operator<br />can manage it. When empty while the namespace is served by two<br />operators, both fail closed with an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
+| `instance` _string_ | Instance optionally pins this resource to one operator's instance<br />identity — the operator config's instanceAlias, defaulting to its<br />domain (v0.18 dual-serving). When set to another identity, the CR is<br />ignored entirely so the owning operator can manage it. When empty<br />while the namespace is served by two operators, both fail closed with<br />an AmbiguousInstance condition. |  | Optional: \{\} <br /> |
 | `organizationRef` _[ResourceRef](#resourceref)_ | OrganizationRef references an Organization CR managed by this operator.<br />Mutually exclusive with OrganizationId. |  | Optional: \{\} <br /> |
 | `organizationId` _string_ | OrganizationId references a pre-existing Zitadel organization by raw ID.<br />Mutually exclusive with OrganizationRef. |  | Optional: \{\} <br /> |
 | `userId` _string_ | UserID is the Zitadel user ID to grant roles to. |  | Optional: \{\} <br /> |
@@ -3154,63 +3213,5 @@ _Appears in:_
 | `ready` _boolean_ | Ready indicates whether the UserGrant is successfully synced. |  |  |
 | `lastSyncTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | LastSyncTime is the last time the resource was synced with Zitadel. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represent the latest available observations of the resource's state. |  |  |
-
-
-#### ZitadelScopeMap
-
-
-
-ZitadelScopeMap maps tenant namespaces to Zitadel org/project scopes.
-Namespaced; only maps in the operator's own namespace are evaluated.
-
-
-
-
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `apiVersion` _string_ | `zitadel.truvity.io/v1alpha2` | | |
-| `kind` _string_ | `ZitadelScopeMap` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[ZitadelScopeMapSpec](#zitadelscopemapspec)_ |  |  |  |
-| `status` _[ZitadelScopeMapStatus](#zitadelscopemapstatus)_ |  |  |  |
-
-
-#### ZitadelScopeMapSpec
-
-
-
-ZitadelScopeMapSpec defines the desired state of ZitadelScopeMap.
-
-
-
-_Appears in:_
-- [ZitadelScopeMap](#zitadelscopemap)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `instance` _string_ | Instance is the Zitadel instance domain this map applies to.<br />Must match the operator's binding domain; otherwise the map is<br />fail-closed with an InstanceMismatch condition. |  |  |
-| `organization` _string_ | Organization is the Zitadel organization name. |  |  |
-| `organizationId` _string_ | OrganizationId pins the Zitadel organization by raw ID.<br />When set, the ID is authoritative; a differing Organization name<br />is reported as drift via an Event (not an error). |  | Optional: \{\} <br /> |
-| `rules` _[ScopeMapRule](#scopemaprule) array_ | Rules is the ordered rule list. First match top-down wins<br />(evaluated across all maps in the operator namespace). |  | MinItems: 1 <br /> |
-
-
-#### ZitadelScopeMapStatus
-
-
-
-ZitadelScopeMapStatus defines the observed state of ZitadelScopeMap.
-
-
-
-_Appears in:_
-- [ZitadelScopeMap](#zitadelscopemap)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `ready` _boolean_ | Ready indicates the map passed validation (instance match, org resolved). |  |  |
-| `resolvedOrganizationId` _string_ | ResolvedOrganizationId is the org ID resolved from spec<br />(spec.organizationId when set, otherwise looked up by name). |  |  |
-| `observedGeneration` _integer_ | ObservedGeneration is the last generation reconciled. |  |  |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represent the latest available observations of the map's state. |  |  |
 
 

@@ -9,7 +9,7 @@ One operator deployment = one Zitadel instance = one binding credential. To mana
 - **Privilege separation on one instance** — a locked-down `iam-owner` operator owns instance state, while tenant workloads are served either by the same operator through scope maps or by separate `org-owner` operators.
 - **Compliance boundaries** — ISO 27001 / SOC 2 style requirements that development tooling can never hold production identity credentials.
 
-Note what you do **not** need extra operators for: serving many organizations on one instance. A single `iam-owner` operator with one `ZitadelScopeMap` per organization does that with per-scope delegated credentials — see [Large installations](large-installations.md).
+Note what you do **not** need extra operators for: serving many organizations on one instance. A single `iam-owner` operator with one `ScopeMap` per organization does that with per-scope delegated credentials — see [Large installations](large-installations.md).
 
 ## Reference topology: employee + customer
 

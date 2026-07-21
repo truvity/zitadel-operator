@@ -55,7 +55,7 @@ The pod crash-looping right after deploy is almost always deliberate fail-fast. 
 | `Assumed` (True) | Unpinned, no other operator detected | — |
 | `AmbiguousInstance` | Unpinned in a dual-served namespace; all operators stopped | Set `spec.instance`. See [Dual-serving](dual-serving.md) |
 
-### Scope-map conditions (`ZitadelScopeMap`)
+### Scope-map conditions (`ScopeMap`)
 
 | Condition / Reason | Meaning |
 | --- | --- |
@@ -67,15 +67,15 @@ The pod crash-looping right after deploy is almost always deliberate fail-fast. 
 
 | Event reason | On | Meaning |
 | --- | --- | --- |
-| `OrganizationNameDrift` | ZitadelScopeMap | `spec.organizationId` is authoritative and the org's real name differs from `spec.organization` — cosmetic drift, fix the name at leisure |
-| `ForeignOrganization` | ZitadelScopeMap | Map for an org outside the `org-owner` binding — rejected |
+| `OrganizationNameDrift` | ScopeMap | `spec.organizationId` is authoritative and the org's real name differs from `spec.organization` — cosmetic drift, fix the name at leisure |
+| `ForeignOrganization` | ScopeMap | Map for an org outside the `org-owner` binding — rejected |
 | `ScopeConflict` (Warning) | both conflicting maps | A namespace matched rules in two maps |
 
 ## Symptom-driven
 
 ### A CR is not reconciled at all (no conditions, no finalizer, no Events)
 
-1. **Foreign instance pin?** `spec.instance` set to another operator's domain ⇒ this operator ignores it entirely (by design).
+1. **Foreign instance pin?** `spec.instance` set to another operator's instance identity ⇒ this operator ignores it entirely (by design).
 2. **Namespace watched?** It must be in `watchNamespaces` (when set) — unwatched namespaces never enter the cache.
 3. **RBAC?**
    ```bash
@@ -103,3 +103,15 @@ Working as intended: within a managed scope the operator is the single writer an
 ### Operator logs show delegation Secrets being re-minted repeatedly
 
 The delegate SA in Zitadel and the Secret cache disagree — typically an out-of-band deletion loop (something in Zitadel deleting the delegate users, or something in the cluster pruning the labeled Secrets). Both are self-healing one-offs; recurring re-mints mean an external system is fighting the operator. Check `kubectl -n <operator-ns> get secrets -l zitadel.truvity.io/delegation` and the Zitadel event log for the deleter.
+
+## Identifying delegation Secrets
+
+Delegation Secrets are hash-named (`zitadel-delegation-<scope-hash>`) but
+self-describing via annotations:
+
+```bash
+kubectl get secrets -n zitadel-operator -l zitadel.truvity.io/delegation \
+  -o custom-columns='NAME:.metadata.name,ORG:.metadata.annotations.zitadel\.truvity\.io/scope-org,PROJECT:.metadata.annotations.zitadel\.truvity\.io/scope-project'
+```
+
+The full canonical scope identity is in the Secret's `scope.json` key.
