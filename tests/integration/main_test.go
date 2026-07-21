@@ -15,18 +15,24 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/zalando/go-keyring"
@@ -34,10 +40,16 @@ import (
 
 	"github.com/truvity/zitadel-operator/internal/config"
 	"github.com/truvity/zitadel-operator/internal/controller"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 )
+
+// operatorNamespace hosts ZitadelScopeMaps and delegation Secrets in the
+// v0.18 integration tests.
+const operatorNamespace = "zitadel-operator-system"
 
 var (
 	// zitadelClient is the direct Zitadel API client (shared by all tests).
@@ -53,9 +65,25 @@ var (
 	mgrCancel context.CancelFunc
 
 	// testOrgID is the Zitadel org the binding credential belongs to.
-	// v0.18 removes defaultOrganizationId, so tests that need a pre-existing
+	// v0.18 removed defaultOrganizationId, so tests that need a pre-existing
 	// org reference it explicitly.
 	testOrgID string
+
+	// bindingUserID is the userId of the operator's binding credential
+	// (from the JWT key), used by the actor-proof test.
+	bindingUserID string
+
+	// delegationMgr mints per-scope delegated clients (v0.18).
+	delegationMgr *delegation.Manager
+
+	// scopeResolver resolves namespaces to scopes (v0.18).
+	scopeResolver *scopemap.Resolver
+
+	// delegationGC sweeps delegates (v0.18).
+	delegationGC *delegation.GC
+
+	// testRestCfg is the envtest REST config (extra managers in tests).
+	testRestCfg *rest.Config
 )
 
 func TestMain(m *testing.M) {
@@ -106,8 +134,14 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// v0.18 (INF-424): the harness verifies its binding like production does.
+	if _, err := zitadel.VerifyBinding(ctx, zitadelClient, cfg.Binding); err != nil {
+		slog.Error("binding verification failed", slog.Any("error", err), slog.String("binding", cfg.Binding))
+		os.Exit(1)
+	}
+
 	// Resolve the binding credential's own org — used by tests that need a
-	// pre-existing org ID (defaultOrganizationId is removed in v0.18).
+	// pre-existing org ID (defaultOrganizationId was removed in v0.18).
 	myOrg, err := zitadelClient.Management().GetMyOrg(ctx, &management.GetMyOrgRequest{}) //nolint:staticcheck // SA1019: v1 Management API
 	if err != nil {
 		slog.Error("failed to resolve binding org", slog.Any("error", err))
@@ -116,6 +150,16 @@ func TestMain(m *testing.M) {
 	testOrgID = myOrg.GetOrg().GetId()
 	slog.Info("resolved test org", slog.String("orgId", testOrgID))
 
+	// Extract the binding credential's userId (for the actor-proof test).
+	var keyMeta struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.Unmarshal([]byte(keyJSON), &keyMeta); err != nil {
+		slog.Error("failed to parse JWT key JSON", slog.Any("error", err))
+		os.Exit(1)
+	}
+	bindingUserID = keyMeta.UserID
+
 	// Start shared envtest environment.
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
@@ -123,6 +167,7 @@ func TestMain(m *testing.M) {
 	}
 
 	restCfg, err := testEnv.Start()
+	testRestCfg = restCfg
 	if err != nil {
 		slog.Error("failed to start envtest", slog.Any("error", err))
 		os.Exit(1)
@@ -147,6 +192,57 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// v0.18 scope maps: resolver + delegation wired into all tenant
+	// reconcilers. With zero ZitadelScopeMaps present this is passthrough,
+	// so all pre-v0.18 tests behave unchanged.
+	cacheSynced := &atomic.Bool{}
+	if err := mgr.Add(manager.RunnableFunc(func(runCtx context.Context) error {
+		if mgr.GetCache().WaitForCacheSync(runCtx) {
+			cacheSynced.Store(true)
+		}
+		<-runCtx.Done()
+		return nil
+	})); err != nil {
+		slog.Error("failed to add cache-sync tracker", slog.Any("error", err))
+		os.Exit(1)
+	}
+	scopeResolver = &scopemap.Resolver{
+		Reader:    mgr.GetClient(),
+		Namespace: operatorNamespace,
+		Instance:  cfg.Domain,
+		Synced:    cacheSynced.Load,
+		Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"),
+	}
+	delegationMgr = &delegation.Manager{
+		K8s:     mgr.GetClient(),
+		Binding: zitadelClient,
+		ClientCfg: zitadel.ClientConfig{
+			Domain:            cfg.Domain,
+			Port:              cfg.Port,
+			InsecurePlaintext: cfg.Insecure,
+		},
+		Namespace: operatorNamespace,
+		// Keep minted test resources identifiable on the shared test instance.
+		UsernamePrefix: "v018-delegate-",
+	}
+	delegationGC = &delegation.GC{
+		K8s:      mgr.GetClient(),
+		Resolver: scopeResolver,
+		Manager:  delegationMgr,
+	}
+	if err := (&controller.ZitadelScopeMapReconciler{
+		Client:    mgr.GetClient(),
+		Zitadel:   zitadelClient,
+		Config:    cfg,
+		Instance:  cfg.Domain,
+		Namespace: operatorNamespace,
+		Recorder:  mgr.GetEventRecorderFor("zitadelscopemap"),
+		GC:        delegationGC,
+	}).SetupWithManager(mgr); err != nil {
+		slog.Error("failed to setup ZitadelScopeMapReconciler", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	// Register controllers.
 	if err := (&controller.OrganizationReconciler{
 		Client:  mgr.GetClient(),
@@ -158,36 +254,44 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := (&controller.ProjectReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup ProjectReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.OIDCAppReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup OIDCAppReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.MachineUserReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup MachineUserReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.UserGrantReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup UserGrantReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -212,90 +316,110 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := (&controller.ProjectMemberReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup ProjectMemberReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.OrgMetadataReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup OrgMetadataReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.DomainReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup DomainReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.ProjectGrantReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup ProjectGrantReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.IdentityProviderReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup IdentityProviderReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.APIAppReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup APIAppReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.SAMLAppReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup SAMLAppReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.ApplicationKeyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup ApplicationKeyReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.PersonalAccessTokenReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup PersonalAccessTokenReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.ProjectGrantMemberReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup ProjectGrantMemberReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -329,27 +453,33 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := (&controller.LoginPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup LoginPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.PasswordComplexityPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup PasswordComplexityPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.LockoutPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup LockoutPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -365,18 +495,22 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := (&controller.HumanUserReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup HumanUserReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.OrgMemberReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup OrgMemberReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -392,27 +526,33 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := (&controller.LabelPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup LabelPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.NotificationPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup NotificationPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
 	}
 
 	if err := (&controller.PasswordAgePolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup PasswordAgePolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -500,9 +640,11 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := (&controller.PrivacyPolicyReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup PrivacyPolicyReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -518,9 +660,11 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := (&controller.MessageTextReconciler{
-		Client:  mgr.GetClient(),
-		Zitadel: zitadelClient,
-		Config:  cfg,
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to setup MessageTextReconciler", slog.Any("error", err))
 		os.Exit(1)
@@ -545,6 +689,13 @@ func TestMain(m *testing.M) {
 	k8sClient, err = client.New(restCfg, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		slog.Error("failed to create k8s client", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	// Create the operator namespace (holds scope maps + delegation Secrets).
+	opNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: operatorNamespace}}
+	if err := k8sClient.Create(ctx, opNs); err != nil {
+		slog.Error("failed to create operator namespace", slog.Any("error", err))
 		os.Exit(1)
 	}
 

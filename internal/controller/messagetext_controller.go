@@ -16,6 +16,8 @@ import (
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 )
 
@@ -24,6 +26,12 @@ type MessageTextReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=messagetexts,verbs=get;list;watch;create;update;patch;delete
@@ -36,8 +44,17 @@ func (r *MessageTextReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve organization.
-	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	orgID, err := resolveScopedOrganizationId(ctx, r.Client, rs, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
 		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
 			return result, nil
@@ -62,6 +79,9 @@ func (r *MessageTextReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Warn if email-only fields are set for verifySmsOtp.
 	r.warnSmsOtpFields(ctx, &cr, spec)
@@ -96,68 +116,68 @@ func (r *MessageTextReconciler) warnSmsOtpFields(ctx context.Context, cr *zitade
 func (r *MessageTextReconciler) setCustomMessageText(ctx context.Context, spec *zitadelv1alpha2.MessageTextFields) error {
 	switch spec.Type {
 	case "init":
-		_, err := r.Zitadel.Management().SetCustomInitMessageText(ctx, &management.SetCustomInitMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomInitMessageText(ctx, &management.SetCustomInitMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
 		})
 		return err
 	case "passwordReset":
-		_, err := r.Zitadel.Management().SetCustomPasswordResetMessageText(ctx, &management.SetCustomPasswordResetMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomPasswordResetMessageText(ctx, &management.SetCustomPasswordResetMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
 		})
 		return err
 	case "verifyEmail":
-		_, err := r.Zitadel.Management().SetCustomVerifyEmailMessageText(ctx, &management.SetCustomVerifyEmailMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomVerifyEmailMessageText(ctx, &management.SetCustomVerifyEmailMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
 		})
 		return err
 	case "verifyPhone":
-		_, err := r.Zitadel.Management().SetCustomVerifyPhoneMessageText(ctx, &management.SetCustomVerifyPhoneMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomVerifyPhoneMessageText(ctx, &management.SetCustomVerifyPhoneMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
 		})
 		return err
 	case "verifySmsOtp":
-		_, err := r.Zitadel.Management().SetCustomVerifySMSOTPMessageText(ctx, &management.SetCustomVerifySMSOTPMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomVerifySMSOTPMessageText(ctx, &management.SetCustomVerifySMSOTPMessageTextRequest{
 			Language: spec.Language, Text: spec.Text,
 		})
 		return err
 	case "verifyEmailOtp":
-		_, err := r.Zitadel.Management().SetCustomVerifyEmailOTPMessageText(ctx, &management.SetCustomVerifyEmailOTPMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomVerifyEmailOTPMessageText(ctx, &management.SetCustomVerifyEmailOTPMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
 		})
 		return err
 	case "domainClaimed":
-		_, err := r.Zitadel.Management().SetCustomDomainClaimedMessageCustomText(ctx, &management.SetCustomDomainClaimedMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomDomainClaimedMessageCustomText(ctx, &management.SetCustomDomainClaimedMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
 		})
 		return err
 	case "passwordlessRegistration":
-		_, err := r.Zitadel.Management().SetCustomPasswordlessRegistrationMessageCustomText(ctx, &management.SetCustomPasswordlessRegistrationMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomPasswordlessRegistrationMessageCustomText(ctx, &management.SetCustomPasswordlessRegistrationMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
 		})
 		return err
 	case "passwordChange":
-		_, err := r.Zitadel.Management().SetCustomPasswordChangeMessageCustomText(ctx, &management.SetCustomPasswordChangeMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomPasswordChangeMessageCustomText(ctx, &management.SetCustomPasswordChangeMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
 		})
 		return err
 	case "inviteUser":
-		_, err := r.Zitadel.Management().SetCustomInviteUserMessageCustomText(ctx, &management.SetCustomInviteUserMessageTextRequest{
+		_, err := zclient(ctx, r.Zitadel).Management().SetCustomInviteUserMessageCustomText(ctx, &management.SetCustomInviteUserMessageTextRequest{
 			Language: spec.Language, Title: spec.Title, PreHeader: spec.PreHeader,
 			Subject: spec.Subject, Greeting: spec.Greeting, Text: spec.Text,
 			ButtonText: spec.ButtonText, FooterText: spec.FooterText,
@@ -171,34 +191,34 @@ func (r *MessageTextReconciler) setCustomMessageText(ctx context.Context, spec *
 func (r *MessageTextReconciler) resetCustomMessageText(ctx context.Context, spec *zitadelv1alpha2.MessageTextFields) error {
 	switch spec.Type {
 	case "init":
-		_, err := r.Zitadel.Management().ResetCustomInitMessageTextToDefault(ctx, &management.ResetCustomInitMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomInitMessageTextToDefault(ctx, &management.ResetCustomInitMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "passwordReset":
-		_, err := r.Zitadel.Management().ResetCustomPasswordResetMessageTextToDefault(ctx, &management.ResetCustomPasswordResetMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomPasswordResetMessageTextToDefault(ctx, &management.ResetCustomPasswordResetMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "verifyEmail":
-		_, err := r.Zitadel.Management().ResetCustomVerifyEmailMessageTextToDefault(ctx, &management.ResetCustomVerifyEmailMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomVerifyEmailMessageTextToDefault(ctx, &management.ResetCustomVerifyEmailMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "verifyPhone":
-		_, err := r.Zitadel.Management().ResetCustomVerifyPhoneMessageTextToDefault(ctx, &management.ResetCustomVerifyPhoneMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomVerifyPhoneMessageTextToDefault(ctx, &management.ResetCustomVerifyPhoneMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "verifySmsOtp":
-		_, err := r.Zitadel.Management().ResetCustomVerifySMSOTPMessageTextToDefault(ctx, &management.ResetCustomVerifySMSOTPMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomVerifySMSOTPMessageTextToDefault(ctx, &management.ResetCustomVerifySMSOTPMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "verifyEmailOtp":
-		_, err := r.Zitadel.Management().ResetCustomVerifyEmailOTPMessageTextToDefault(ctx, &management.ResetCustomVerifyEmailOTPMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomVerifyEmailOTPMessageTextToDefault(ctx, &management.ResetCustomVerifyEmailOTPMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "domainClaimed":
-		_, err := r.Zitadel.Management().ResetCustomDomainClaimedMessageTextToDefault(ctx, &management.ResetCustomDomainClaimedMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomDomainClaimedMessageTextToDefault(ctx, &management.ResetCustomDomainClaimedMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "passwordlessRegistration":
-		_, err := r.Zitadel.Management().ResetCustomPasswordlessRegistrationMessageTextToDefault(ctx, &management.ResetCustomPasswordlessRegistrationMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomPasswordlessRegistrationMessageTextToDefault(ctx, &management.ResetCustomPasswordlessRegistrationMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "passwordChange":
-		_, err := r.Zitadel.Management().ResetCustomPasswordChangeMessageTextToDefault(ctx, &management.ResetCustomPasswordChangeMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomPasswordChangeMessageTextToDefault(ctx, &management.ResetCustomPasswordChangeMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	case "inviteUser":
-		_, err := r.Zitadel.Management().ResetCustomInviteUserMessageTextToDefault(ctx, &management.ResetCustomInviteUserMessageTextToDefaultRequest{Language: spec.Language})
+		_, err := zclient(ctx, r.Zitadel).Management().ResetCustomInviteUserMessageTextToDefault(ctx, &management.ResetCustomInviteUserMessageTextToDefaultRequest{Language: spec.Language})
 		return err
 	default:
 		return fmt.Errorf("unsupported message text type: %s", spec.Type)

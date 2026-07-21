@@ -17,6 +17,8 @@ import (
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 )
 
@@ -25,6 +27,12 @@ type ProjectReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projects,verbs=get;list;watch;create;update;patch;delete
@@ -39,8 +47,17 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve organization.
-	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	orgID, err := resolveScopedOrganizationId(ctx, r.Client, rs, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
 		if isRefNotReady(err) {
 			logger.Info("waiting for organization ref to become ready", "error", err)
@@ -52,7 +69,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Deletion.
 	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		if cr.Status.ProjectId != "" {
-			_, err := r.Zitadel.Project().DeleteProject(ctx, &projectv2.DeleteProjectRequest{
+			_, err := zclient(ctx, r.Zitadel).Project().DeleteProject(ctx, &projectv2.DeleteProjectRequest{
 				ProjectId: cr.Status.ProjectId,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
@@ -68,6 +85,9 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Ensure project exists.
 	projectID, err := r.ensureProject(ctx, &cr, orgID)
@@ -101,7 +121,7 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 
 	// If we already have a project ID, verify it still exists.
 	if cr.Status.ProjectId != "" {
-		listResp, err := r.Zitadel.Project().ListProjects(ctx, &projectv2.ListProjectsRequest{
+		listResp, err := zclient(ctx, r.Zitadel).Project().ListProjects(ctx, &projectv2.ListProjectsRequest{
 			Filters: []*projectv2.ProjectSearchFilter{
 				{
 					Filter: &projectv2.ProjectSearchFilter_ProjectNameFilter{
@@ -123,7 +143,7 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 	}
 
 	// Search by name.
-	listResp, err := r.Zitadel.Project().ListProjects(ctx, &projectv2.ListProjectsRequest{
+	listResp, err := zclient(ctx, r.Zitadel).Project().ListProjects(ctx, &projectv2.ListProjectsRequest{
 		Filters: []*projectv2.ProjectSearchFilter{
 			{
 				Filter: &projectv2.ProjectSearchFilter_ProjectNameFilter{
@@ -146,7 +166,7 @@ func (r *ProjectReconciler) ensureProject(ctx context.Context, cr *zitadelv1alph
 	}
 
 	// Create new project.
-	createResp, err := r.Zitadel.Project().CreateProject(ctx, &projectv2.CreateProjectRequest{
+	createResp, err := zclient(ctx, r.Zitadel).Project().CreateProject(ctx, &projectv2.CreateProjectRequest{
 		Name:           displayName,
 		OrganizationId: orgID,
 	})
@@ -173,7 +193,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
 	// List existing roles.
-	listResp, err := r.Zitadel.Management().ListProjectRoles(ctx, &management.ListProjectRolesRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	listResp, err := zclient(ctx, r.Zitadel).Management().ListProjectRoles(ctx, &management.ListProjectRolesRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId: projectID,
 		Query:     &object.ListQuery{Limit: 100},
 	})
@@ -196,7 +216,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	// Add missing roles.
 	for _, role := range desiredRoles {
 		if !existing[role] {
-			_, err := r.Zitadel.Management().AddProjectRole(ctx, &management.AddProjectRoleRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+			_, err := zclient(ctx, r.Zitadel).Management().AddProjectRole(ctx, &management.AddProjectRoleRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				ProjectId:   projectID,
 				RoleKey:     role,
 				DisplayName: role,
@@ -210,7 +230,7 @@ func (r *ProjectReconciler) syncRoles(ctx context.Context, projectID, orgID stri
 	// Remove extra roles.
 	for roleKey := range existing {
 		if !desired[roleKey] {
-			_, err := r.Zitadel.Management().RemoveProjectRole(ctx, &management.RemoveProjectRoleRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+			_, err := zclient(ctx, r.Zitadel).Management().RemoveProjectRole(ctx, &management.RemoveProjectRoleRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 				ProjectId: projectID,
 				RoleKey:   roleKey,
 			})

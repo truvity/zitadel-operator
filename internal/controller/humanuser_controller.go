@@ -16,6 +16,8 @@ import (
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	objectv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
@@ -27,6 +29,12 @@ type HumanUserReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=humanusers,verbs=get;list;watch;create;update;patch;delete
@@ -41,8 +49,17 @@ func (r *HumanUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve organization.
-	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	orgID, err := resolveScopedOrganizationId(ctx, r.Client, rs, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
 		if isRefNotReady(err) {
 			logger.Info("waiting for organization ref to become ready", "error", err)
@@ -57,7 +74,7 @@ func (r *HumanUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Deletion.
 	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
 		if cr.Status.UserId != "" {
-			_, err := r.Zitadel.User().DeleteUser(ctx, &userv2.DeleteUserRequest{
+			_, err := zclient(ctx, r.Zitadel).User().DeleteUser(ctx, &userv2.DeleteUserRequest{
 				UserId: cr.Status.UserId,
 			})
 			if err != nil && status.Code(err) != codes.NotFound {
@@ -73,6 +90,9 @@ func (r *HumanUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Resolve initial password if set.
 	initialPassword := ""
@@ -131,7 +151,7 @@ func (r *HumanUserReconciler) resolveInitialPassword(ctx context.Context, cr *zi
 func (r *HumanUserReconciler) ensureHumanUser(ctx context.Context, cr *zitadelv1alpha2.HumanUser, orgID, initialPassword string) (string, error) {
 	// If we already have a user ID, verify it still exists.
 	if cr.Status.UserId != "" {
-		_, err := r.Zitadel.User().GetUserByID(ctx, &userv2.GetUserByIDRequest{
+		_, err := zclient(ctx, r.Zitadel).User().GetUserByID(ctx, &userv2.GetUserByIDRequest{
 			UserId: cr.Status.UserId,
 		})
 		if err == nil {
@@ -146,7 +166,7 @@ func (r *HumanUserReconciler) ensureHumanUser(ctx context.Context, cr *zitadelv1
 	}
 
 	// Search by userName to avoid duplicates.
-	listResp, err := r.Zitadel.User().ListUsers(ctx, &userv2.ListUsersRequest{
+	listResp, err := zclient(ctx, r.Zitadel).User().ListUsers(ctx, &userv2.ListUsersRequest{
 		Queries: []*userv2.SearchQuery{
 			{
 				Query: &userv2.SearchQuery_UserNameQuery{
@@ -221,7 +241,7 @@ func (r *HumanUserReconciler) ensureHumanUser(ctx context.Context, cr *zitadelv1
 		}
 	}
 
-	resp, err := r.Zitadel.User().AddHumanUser(ctx, addReq) //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	resp, err := zclient(ctx, r.Zitadel).User().AddHumanUser(ctx, addReq) //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 	if err != nil {
 		return "", fmt.Errorf("adding human user: %w", err)
 	}

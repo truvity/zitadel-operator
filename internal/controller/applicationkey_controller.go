@@ -17,6 +17,8 @@ import (
 
 	zitadelv1alpha2 "github.com/truvity/zitadel-operator/api/v1alpha2"
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/authn"
@@ -28,6 +30,12 @@ type ApplicationKeyReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=applicationkeys,verbs=get;list;watch;create;update;patch;delete
@@ -41,8 +49,17 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve project ID (and inherited org ID).
-	projectID, inheritedOrgID, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
+	projectID, inheritedOrgID, err := resolveScopedProjectId(ctx, r.Client, rs, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace, cr.Status.ProjectId, "")
 	if err != nil {
 		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
@@ -75,6 +92,9 @@ func (r *ApplicationKeyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Ensure key exists and is stored in Secret.
 	if err := r.ensureKey(ctx, &cr, projectID, appID); err != nil {
@@ -100,7 +120,7 @@ func (r *ApplicationKeyReconciler) deleteKey(ctx context.Context, projectID, app
 	if keyID == "" {
 		return nil
 	}
-	_, err := r.Zitadel.Management().RemoveAppKey(ctx, &management.RemoveAppKeyRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	_, err := zclient(ctx, r.Zitadel).Management().RemoveAppKey(ctx, &management.RemoveAppKeyRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId: projectID,
 		AppId:     appID,
 		KeyId:     keyID,
@@ -131,7 +151,7 @@ func (r *ApplicationKeyReconciler) ensureKey(ctx context.Context, cr *zitadelv1a
 	}
 
 	// Create a new key via Management API.
-	keyResp, err := r.Zitadel.Management().AddAppKey(ctx, &management.AddAppKeyRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	keyResp, err := zclient(ctx, r.Zitadel).Management().AddAppKey(ctx, &management.AddAppKeyRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId:      projectID,
 		AppId:          appID,
 		Type:           authn.KeyType_KEY_TYPE_JSON,

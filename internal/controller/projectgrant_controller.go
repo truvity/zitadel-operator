@@ -14,6 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 )
 
@@ -22,6 +24,12 @@ type ProjectGrantReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectgrants,verbs=get;list;watch;create;update;patch;delete
@@ -34,8 +42,17 @@ func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve organization (the owning org).
-	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	orgID, err := resolveScopedOrganizationId(ctx, r.Client, rs, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
 		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
 			return result, nil
@@ -47,7 +64,7 @@ func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
 	// Resolve project ID.
-	projectID, _, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
+	projectID, _, err := resolveScopedProjectId(ctx, r.Client, rs, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace, "", "")
 	if err != nil {
 		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "ProjectNotReady", err); waiting {
 			return result, nil
@@ -75,6 +92,9 @@ func (r *ProjectGrantReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Ensure project grant exists.
 	grantID, err := r.ensureProjectGrant(ctx, projectID, grantedOrgID, cr.Spec.RoleKeys, cr.Status.GrantId)
@@ -98,7 +118,7 @@ func (r *ProjectGrantReconciler) deleteGrant(ctx context.Context, projectID, gra
 	if grantID == "" {
 		return nil
 	}
-	_, err := r.Zitadel.Management().RemoveProjectGrant(ctx, &management.RemoveProjectGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	_, err := zclient(ctx, r.Zitadel).Management().RemoveProjectGrant(ctx, &management.RemoveProjectGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId: projectID,
 		GrantId:   grantID,
 	})
@@ -136,14 +156,14 @@ func (r *ProjectGrantReconciler) resolveGrantedOrgID(ctx context.Context, cr *zi
 func (r *ProjectGrantReconciler) ensureProjectGrant(ctx context.Context, projectID, grantedOrgID string, desiredRoles []string, existingGrantID string) (string, error) {
 	// If we have an existing grant ID, check it.
 	if existingGrantID != "" {
-		resp, err := r.Zitadel.Management().GetProjectGrantByID(ctx, &management.GetProjectGrantByIDRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+		resp, err := zclient(ctx, r.Zitadel).Management().GetProjectGrantByID(ctx, &management.GetProjectGrantByIDRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			ProjectId: projectID,
 			GrantId:   existingGrantID,
 		})
 		if err == nil {
 			// Grant exists, check if roles need updating.
 			if !rolesEqual(resp.GetProjectGrant().GetGrantedRoleKeys(), desiredRoles) {
-				_, err := r.Zitadel.Management().UpdateProjectGrant(ctx, &management.UpdateProjectGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+				_, err := zclient(ctx, r.Zitadel).Management().UpdateProjectGrant(ctx, &management.UpdateProjectGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 					ProjectId: projectID,
 					GrantId:   existingGrantID,
 					RoleKeys:  desiredRoles,
@@ -161,7 +181,7 @@ func (r *ProjectGrantReconciler) ensureProjectGrant(ctx context.Context, project
 	}
 
 	// Create new grant.
-	addResp, err := r.Zitadel.Management().AddProjectGrant(ctx, &management.AddProjectGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	addResp, err := zclient(ctx, r.Zitadel).Management().AddProjectGrant(ctx, &management.AddProjectGrantRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId:    projectID,
 		GrantedOrgId: grantedOrgID,
 		RoleKeys:     desiredRoles,

@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/truvity/zitadel-operator/internal/config"
+	"github.com/truvity/zitadel-operator/internal/delegation"
+	"github.com/truvity/zitadel-operator/internal/scopemap"
 	"github.com/truvity/zitadel-operator/internal/zitadel"
 )
 
@@ -26,6 +28,12 @@ type ProjectMemberReconciler struct {
 	client.Client
 	Zitadel *zitadel.Client
 	Config  *config.Config
+
+	// Resolver enables v0.18 scope-map resolution when non-nil; with maps
+	// present, reconciliation runs with a delegated per-scope client.
+	Resolver *scopemap.Resolver
+	// Delegation mints/caches the per-scope delegated clients.
+	Delegation *delegation.Manager
 }
 
 // +kubebuilder:rbac:groups=zitadel.truvity.io,resources=projectmembers,verbs=get;list;watch;create;update;patch;delete
@@ -40,14 +48,20 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// v0.18 (INF-422/INF-423): dual-serving instance gate + scope
+	// resolution. Fail-closed outcomes return immediately; during deletion
+	// failures fall back to the binding client so finalizers cannot deadlock.
+	ctx, rs, rsDone, rsResult, rsErr := tenantPreamble(ctx, r.Client, r.Config,
+		r.Resolver, r.Delegation, r.Zitadel, &cr, cr.Spec.Instance, &cr.Status.Conditions, req.Namespace)
+	if rsDone {
+		return rsResult, rsErr
+	}
+
 	// Resolve organization.
-	orgID, err := resolveOrganizationId(ctx, r.Client, r.Config, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
+	orgID, err := resolveScopedOrganizationId(ctx, r.Client, rs, cr.Spec.OrganizationRef, cr.Spec.OrganizationId, cr.Namespace)
 	if err != nil {
-		if isRefNotReady(err) {
-			logger.Info("waiting for organization ref to become ready", "error", err)
-			setCondition(&cr.Status.Conditions, ConditionTypeReady, metav1.ConditionFalse, "OrgNotReady", err.Error())
-			_ = applyStatus(ctx, r.Client, r.Config, &cr)
-			return ctrl.Result{RequeueAfter: requeueOnError}, nil
+		if waiting, result := waitForRef(ctx, r.Client, r.Config, &cr, &cr.Status.Conditions, "OrgNotReady", err); waiting {
+			return result, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("resolving organization: %w", err)
 	}
@@ -56,7 +70,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	ctx = metadata.AppendToOutgoingContext(ctx, "x-zitadel-orgid", orgID)
 
 	// Resolve project ID.
-	projectID, _, err := resolveProjectId(ctx, r.Client, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace)
+	projectID, _, err := resolveScopedProjectId(ctx, r.Client, rs, cr.Spec.ProjectRef, cr.Spec.ProjectId, cr.Namespace, "", "")
 	if err != nil {
 		if isRefNotReady(err) {
 			logger.Info("waiting for project ref to become ready", "error", err)
@@ -81,7 +95,7 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// Deletion.
 	if done, result, err := handleDeletion(ctx, r.Client, &cr, func() error {
-		_, err := r.Zitadel.Management().RemoveProjectMember(ctx, &management.RemoveProjectMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+		_, err := zclient(ctx, r.Zitadel).Management().RemoveProjectMember(ctx, &management.RemoveProjectMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 			ProjectId: projectID,
 			UserId:    userID,
 		})
@@ -97,6 +111,9 @@ func (r *ProjectMemberReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := ensureFinalizer(ctx, r.Client, &cr); err != nil {
 		return ctrl.Result{}, err
 	}
+	// ensureFinalizer's full-object Update refreshed the object from the
+	// server, dropping in-memory condition edits — re-apply ScopeResolved.
+	applyScopeResolvedCondition(rs, &cr.Status.Conditions)
 
 	// Ensure project member exists with correct roles.
 	if err := r.ensureProjectMember(ctx, projectID, userID, cr.Spec.Roles); err != nil {
@@ -142,7 +159,7 @@ func (r *ProjectMemberReconciler) resolveUserID(ctx context.Context, cr *zitadel
 
 func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, projectID, userID string, desiredRoles []string) error {
 	// Check if member already exists.
-	listResp, err := r.Zitadel.Management().ListProjectMembers(ctx, &management.ListProjectMembersRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	listResp, err := zclient(ctx, r.Zitadel).Management().ListProjectMembers(ctx, &management.ListProjectMembersRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId: projectID,
 		Query:     &object.ListQuery{Limit: 100},
 		Queries: []*member.SearchQuery{
@@ -164,7 +181,7 @@ func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, proje
 			if m.GetUserId() == userID {
 				// Member exists, update roles if needed.
 				if !rolesEqual(m.GetRoles(), desiredRoles) {
-					_, err := r.Zitadel.Management().UpdateProjectMember(ctx, &management.UpdateProjectMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+					_, err := zclient(ctx, r.Zitadel).Management().UpdateProjectMember(ctx, &management.UpdateProjectMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 						ProjectId: projectID,
 						UserId:    userID,
 						Roles:     desiredRoles,
@@ -179,7 +196,7 @@ func (r *ProjectMemberReconciler) ensureProjectMember(ctx context.Context, proje
 	}
 
 	// Create new member.
-	_, err = r.Zitadel.Management().AddProjectMember(ctx, &management.AddProjectMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
+	_, err = zclient(ctx, r.Zitadel).Management().AddProjectMember(ctx, &management.AddProjectMemberRequest{ //nolint:staticcheck // SA1019: deprecated SDK v1 method, migrate to v2 when stable
 		ProjectId: projectID,
 		UserId:    userID,
 		Roles:     desiredRoles,

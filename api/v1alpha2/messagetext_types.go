@@ -6,6 +6,14 @@ import (
 
 // MessageTextSpec defines the desired state of MessageText.
 type MessageTextSpec struct {
+	// Instance optionally pins this resource to a specific Zitadel instance
+	// domain (v0.18 dual-serving). When set to a domain other than this
+	// operator's binding, the CR is ignored entirely so the owning operator
+	// can manage it. When empty while the namespace is served by two
+	// operators, both fail closed with an AmbiguousInstance condition.
+	// +optional
+	Instance string `json:"instance,omitempty"`
+
 	// OrganizationRef references an Organization CR managed by this operator.
 	// Mutually exclusive with OrganizationId.
 	// +optional

@@ -64,6 +64,7 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&PrivacyPolicy{}, &PrivacyPolicyList{},
 		&DefaultMessageText{}, &DefaultMessageTextList{},
 		&MessageText{}, &MessageTextList{},
+		&ZitadelScopeMap{}, &ZitadelScopeMapList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil
