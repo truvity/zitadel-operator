@@ -6,6 +6,14 @@ import (
 
 // MachineUserSpec defines the desired state of MachineUser.
 type MachineUserSpec struct {
+	// Instance optionally pins this resource to a specific Zitadel instance
+	// domain (v0.18 dual-serving). When set to a domain other than this
+	// operator's binding, the CR is ignored entirely so the owning operator
+	// can manage it. When empty while the namespace is served by two
+	// operators, both fail closed with an AmbiguousInstance condition.
+	// +optional
+	Instance string `json:"instance,omitempty"`
+
 	// OrganizationRef references an Organization CR managed by this operator.
 	// Mutually exclusive with OrganizationId.
 	// +optional
@@ -33,8 +41,35 @@ type MachineUserSpec struct {
 	// +optional
 	AccessTokenType string `json:"accessTokenType,omitempty"`
 
+	// Roles are project role grants for this machine user within the
+	// namespace's resolved scope (v0.18, INF-426). Requires a project scope
+	// (the grant is created on the scope's project); grants never widen
+	// beyond the resolved scope.
+	// +optional
+	Roles []string `json:"roles,omitempty"`
+
+	// Key configures machine key lifecycle (v0.18, INF-426).
+	// +optional
+	Key *MachineKeySpec `json:"key,omitempty"`
+
 	// KeySecretRef references the Secret where the generated key JSON will be stored.
 	KeySecretRef MachineKeySecretRef `json:"keySecretRef"`
+}
+
+// MachineKeySpec configures machine key rotation.
+type MachineKeySpec struct {
+	// RotateAfter enables dual-key rotation: once the current key is older
+	// than this duration, a new key is minted and swapped into the Secret;
+	// the old key is revoked after RotationGrace (two keys coexist during
+	// the overlap). Example: "2160h" (90 days). Empty = never rotate
+	// (pre-v0.18 behavior).
+	// +optional
+	RotateAfter *metav1.Duration `json:"rotateAfter,omitempty"`
+
+	// RotationGrace is how long the old key stays valid after rotation.
+	// Defaults to 5m.
+	// +optional
+	RotationGrace *metav1.Duration `json:"rotationGrace,omitempty"`
 }
 
 // MachineUserStatus defines the observed state of MachineUser.
@@ -44,6 +79,24 @@ type MachineUserStatus struct {
 
 	// OrganizationId is the resolved organization ID.
 	OrganizationId string `json:"organizationId,omitempty"`
+
+	// ProjectId is the scope project the roles are granted on (v0.18).
+	ProjectId string `json:"projectId,omitempty"`
+
+	// GrantId is the Zitadel user grant carrying spec.roles (v0.18).
+	GrantId string `json:"grantId,omitempty"`
+
+	// KeyId is the current machine key (v0.18 rotation bookkeeping).
+	KeyId string `json:"keyId,omitempty"`
+
+	// KeyCreatedAt is when the current key was minted.
+	KeyCreatedAt *metav1.Time `json:"keyCreatedAt,omitempty"`
+
+	// PreviousKeyId is the rotated-out key awaiting revocation.
+	PreviousKeyId string `json:"previousKeyId,omitempty"`
+
+	// PreviousKeyRevokeAt is when the rotated-out key gets revoked.
+	PreviousKeyRevokeAt *metav1.Time `json:"previousKeyRevokeAt,omitempty"`
 
 	// Ready indicates whether the MachineUser is successfully synced.
 	Ready bool `json:"ready,omitempty"`
