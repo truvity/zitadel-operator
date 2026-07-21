@@ -3,10 +3,12 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -139,6 +141,15 @@ func isRefNotReady(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "not yet ready")
+}
+
+// isRefNotFound returns true if the error (possibly wrapped) is a Kubernetes
+// NotFound for a referenced CR. For declarative any-order applies this is as
+// transient as "not yet ready": the reference may simply not have been
+// created yet (v0.19 — used by resolvers that requeue politely on it).
+func isRefNotFound(err error) bool {
+	var statusErr *apierrors.StatusError
+	return errors.As(err, &statusErr) && apierrors.IsNotFound(statusErr)
 }
 
 // setCondition sets or updates a condition in the given conditions slice.

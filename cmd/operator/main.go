@@ -161,7 +161,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 			Namespace: cfg.OperatorNamespace,
 			Instance:  cfg.InstanceIdentity(),
 			Synced:    synced.Load,
-			Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"), //nolint:staticcheck // SA1019: record.EventRecorder API; events.EventRecorder migration is a separate chore
+			Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"), //nolint:staticcheck,nolintlint // SA1019 (CI toolchain only): record.EventRecorder API; events.EventRecorder migration is a separate chore
 		}
 		delegationMgr = &delegation.Manager{
 			K8s:     mgr.GetClient(),
@@ -196,7 +196,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 			Config:    cfg,
 			Instance:  cfg.InstanceIdentity(),
 			Namespace: cfg.OperatorNamespace,
-			Recorder:  mgr.GetEventRecorderFor("scopemap"), //nolint:staticcheck // SA1019: record.EventRecorder API; events.EventRecorder migration is a separate chore
+			Recorder:  mgr.GetEventRecorderFor("scopemap"), //nolint:staticcheck,nolintlint // SA1019 (CI toolchain only): record.EventRecorder API; events.EventRecorder migration is a separate chore
 			GC:        gc,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ScopeMap")
@@ -225,6 +225,17 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 		Delegation: delegationMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Project")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ProjectRoleReconciler{
+		Client:     mgr.GetClient(),
+		Zitadel:    zitadelClient,
+		Config:     cfg,
+		Resolver:   scopeResolver,
+		Delegation: delegationMgr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ProjectRole")
 		os.Exit(1)
 	}
 
