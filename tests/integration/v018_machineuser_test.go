@@ -54,7 +54,7 @@ func TestMachineUser_ScopeRoles_ConnectionBundle(t *testing.T) {
 		}
 	}
 
-	createScopeMap(t, ctx, fmt.Sprintf("v018-map-mu-%d", ts), zitadelv1alpha2.ZitadelScopeMapSpec{
+	createScopeMap(t, ctx, fmt.Sprintf("v018-map-mu-%d", ts), zitadelv1alpha2.ScopeMapSpec{
 		Instance:       cfg.Domain,
 		Organization:   orgName,
 		OrganizationId: orgID,

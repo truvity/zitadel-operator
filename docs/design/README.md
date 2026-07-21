@@ -10,5 +10,5 @@ Dated, decision-oriented records of why the operator is shaped the way it is. Th
 
 Exploratory evidence backing these decisions lives in [`docs/research/`](../research/):
 
-- [Operator config patterns](../research/operator-config-patterns.md) — comparative survey (ArgoCD, Keycloak, ESO, Capsule, Crossplane) behind the ZitadelScopeMap CRD decision
+- [Operator config patterns](../research/operator-config-patterns.md) — comparative survey (ArgoCD, Keycloak, ESO, Capsule, Crossplane) behind the ScopeMap CRD decision
 - [v0.18 prototype findings](../research/proto-v018-findings.md) — prototype evidence, actor proof, SDK surface audit, INF-400 root cause

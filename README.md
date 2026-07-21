@@ -10,7 +10,7 @@ A Kubernetes operator that manages [Zitadel](https://zitadel.com) resources decl
 ## Why
 
 - **GitOps for identity** — applications declare their own OIDC clients and service accounts next to their Deployments; credentials land in Kubernetes Secrets.
-- **Explicit, fail-closed multi-tenancy** — `ZitadelScopeMap` objects route tenant namespaces to Zitadel org/project scopes, and each scope is reconciled with an internally minted, scope-limited credential ([internal delegation](docs/architecture/delegation.md)). A namespace that matches no rule is rejected, not defaulted.
+- **Explicit, fail-closed multi-tenancy** — `ScopeMap` objects route tenant namespaces to Zitadel org/project scopes, and each scope is reconciled with an internally minted, scope-limited credential ([internal delegation](docs/architecture/delegation.md)). A namespace that matches no rule is rejected, not defaulted.
 - **Single writer with drift detection** — within a managed scope the operator owns the resources it declares: out-of-band edits are detected and reverted on the next reconcile.
 - **43 CRDs** with structured `Ready` conditions, finalizer-based cleanup, idempotent reconciliation (no hot loops), and Server-Side Apply status writes that coexist with other controllers.
 
@@ -57,7 +57,7 @@ The operator creates the application in Zitadel and writes `client_id` + `client
 | Section | Contents |
 | --- | --- |
 | **Install** | [Helm installation](docs/install/helm.md) · [Configuration reference](docs/install/configuration.md) · [Binding levels: iam-owner vs org-owner](docs/install/binding-levels.md) |
-| **Operations** | [Multi-operator topologies](docs/operations/multi-operator.md) · [Scope-map administration & delegation](docs/operations/scope-maps.md) · [Dual-serving one namespace](docs/operations/dual-serving.md) · [Large multi-tenant installations](docs/operations/large-installations.md) · [Troubleshooting](docs/operations/troubleshooting.md) |
+| **Operations** | [Multi-operator topologies](docs/operations/multi-operator.md) · [Scope-map administration & delegation](docs/operations/scope-maps.md) · [Dual-serving one namespace](docs/operations/dual-serving.md) · [Large multi-tenant installations](docs/operations/large-installations.md) · [Metrics](docs/operations/metrics.md) · [Troubleshooting](docs/operations/troubleshooting.md) |
 | **Architecture** | [Resource hierarchy & CRD map](docs/architecture/resource-hierarchy.md) · [Scope resolution](docs/architecture/scope-resolution.md) · [Internal delegation & credential lifecycle](docs/architecture/delegation.md) · [Dual-serving semantics](docs/architecture/dual-serving.md) · [Status conditions & SSA](docs/architecture/status-and-ssa.md) |
 | **Reference** | [CRD API reference](docs/reference/api.md) (generated from the Go types) |
 | **Development** | [Contributing](docs/development/contributing.md) · [Repository layout](docs/development/repo-layout.md) · [Integration-test architecture](docs/development/integration-tests.md) |
@@ -84,7 +84,7 @@ All CRDs are namespaced; namespaces are the RBAC and tenancy boundary. The full 
 - **One operator = one Zitadel instance = one credential**, asserted at startup (`binding: iam-owner | org-owner`, verified against the credential's real memberships — mismatch crashes before any reconcile).
 - **Routing authority lives with the operator**, never with the routed tenant: scope maps are admin-controlled objects in the operator's namespace; namespace labels are facts the maps interpret.
 - **The binding credential only mints, rotates, and revokes** delegated service accounts; tenant resources are reconciled with the scope-limited delegate key.
-- **Zero scope maps = passthrough**: without any `ZitadelScopeMap`, the operator reconciles directly with the binding credential (the pre-v0.18 behavior), so installing the CRD is not a flag day.
+- **Zero scope maps = passthrough**: without any `ScopeMap`, the operator reconciles directly with the binding credential (the pre-v0.18 behavior), so installing the CRD is not a flag day.
 
 ## License
 

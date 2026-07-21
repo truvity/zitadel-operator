@@ -2,7 +2,7 @@
 
 ## Current: v0.18 (v1alpha2, unreleased) — see [CHANGELOG.md](CHANGELOG.md)
 
-v0.18 adds scope maps (`ZitadelScopeMap`), internal delegation, binding
+v0.18 adds scope maps (`ScopeMap`), internal delegation, binding
 levels, dual-serving, and SSA status writes — documented under
 [docs/architecture/](docs/architecture/resource-hierarchy.md).
 

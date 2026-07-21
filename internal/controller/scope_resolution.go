@@ -118,9 +118,9 @@ func instanceGate(ctx context.Context, k8s client.Client, cfg *config.Config, ob
 
 // hasCondition reports whether a condition with the given type/status/reason
 // is already recorded.
-func hasCondition(conditions []metav1.Condition, condType string, status metav1.ConditionStatus, reason string) bool {
+func hasCondition(conditions []metav1.Condition, condType string, condStatus metav1.ConditionStatus, reason string) bool {
 	for _, c := range conditions {
-		if c.Type == condType && c.Status == status && c.Reason == reason {
+		if c.Type == condType && c.Status == condStatus && c.Reason == reason {
 			return true
 		}
 	}

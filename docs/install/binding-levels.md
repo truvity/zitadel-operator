@@ -22,6 +22,11 @@ At startup the operator calls `AuthService.ListMyMemberships` and verifies the a
 - Asserting `org-owner` with an `IAM_OWNER` credential also fails — the operator refuses to run with more privilege than declared.
 - Asserting `org-owner` with a credential that is `ORG_OWNER` in several organizations fails — the binding must identify exactly one bound org.
 
+> **Known v0.18 limitation:** because an `org-owner` binding requires ORG_OWNER
+> in *exactly one* org, a single service account cannot back two org-scoped
+> operator deployments (e.g. two sibling orgs). Use one SA per deployment. A
+> future `boundOrganizationId` config selector may relax this.
+
 A verification failure crashes the pod before any reconcile. This is intentional: the binding is a security boundary, not a hint.
 
 ## Instance-level deployment (`iam-owner`)

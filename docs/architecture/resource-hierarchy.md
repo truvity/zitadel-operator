@@ -26,7 +26,7 @@ Zitadel instance                       ← operator config (domain + binding), n
     ├── ActionTarget · ActionExecution
     └── InstanceMember
 (operator routing)
-    └── ZitadelScopeMap                ← operator namespace only; see Scope resolution
+    └── ScopeMap                ← operator namespace only; see Scope resolution
 ```
 
 **All 43 CRDs are namespaced.** Namespaces are the tenancy and RBAC boundary: a platform team manages `Organization`/`Project` CRs in its own namespace, application teams create `OIDCApp`/`MachineUser` CRs in theirs, and Kubernetes RBAC plus [scope maps](scope-resolution.md) keep them apart. Every spec/status field is documented in the generated [API reference](../reference/api.md).
@@ -40,7 +40,7 @@ What a CRD needs determines which [binding level](../install/binding-levels.md) 
 | **Project** (`PROJECT_OWNER` suffices) | OIDCApp, APIApp, SAMLApp, ApplicationKey, ProjectMember, ProjectGrantMember | Secret outputs: OIDCApp/APIApp (`client_id`, `client_secret`), ApplicationKey (`key.json`) |
 | **Organization** (`ORG_OWNER`) | Organization*, Project, MachineUser, HumanUser, PersonalAccessToken, UserGrant, ProjectGrant, OrgMember, OrgMetadata, Domain, IdentityProvider, LoginPolicy, PasswordComplexityPolicy, LockoutPolicy, PasswordAgePolicy, NotificationPolicy, LabelPolicy, PrivacyPolicy, MessageText | Secret outputs: MachineUser (connection bundle), PersonalAccessToken (`token`). *Creating an Organization needs instance level. |
 | **Instance** (`IAM_OWNER`) | Default* policies, DefaultOIDCSettings, DefaultMessageText, GoogleIdP, GitHubIdP, EmailProvider, SmsProvider, ActionTarget, ActionExecution, InstanceMember | Under an `org-owner` binding these degrade to `Ready=False / NotSupportedAtBindingLevel` |
-| **Operator routing** | ZitadelScopeMap | Evaluated only in the operator's namespace; admin-controlled |
+| **Operator routing** | ScopeMap | Evaluated only in the operator's namespace; admin-controlled |
 
 ## Reference pattern: `*Ref` XOR `*Id`
 

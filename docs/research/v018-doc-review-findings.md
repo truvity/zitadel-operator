@@ -5,6 +5,24 @@
 `feat/v018-scope-maps` (PR #38). For review **before** the v0.18 release —
 items marked *(pre-release)* get cheaper the earlier they land.
 
+> **Resolution status (2026-07-21, pre-v0.18.0):** applied on
+> `feat/v018-scope-maps` before tagging — A1 (Justfile 30m), A2 (S-161
+> rewritten to earliest-wins), B1 (**renamed `ZitadelScopeMap` → `ScopeMap`**),
+> B2/B3 (organization optional when organizationId set; projectId no longer
+> requires a project name), B4 (**`instanceAlias` config key**: pins, ScopeMap
+> assertions and the SSA field manager use the alias, default `domain`),
+> C1/C2/C3 (fail-fast: undeterminable operator namespace, watchNamespaces
+> must include it, empty keyFile), C4 (chart requires
+> `leaderElection.acknowledgeDisabledRisk=true` to disable), C5 (port string
+> typing documented), D1 (steady-state rejects back off to the 5m periodic
+> interval), D2 (permission-shaped delegation failures are conditions, not
+> controller errors), D3 (`OrganizationNameDrift` + `BindingContained`
+> conditions), D4 (scope annotations on delegation Secrets), D5 (limitation
+> stated in CHANGELOG + binding-levels doc), E1 (`examples/`), E2
+> (`docs/operations/metrics.md`), E3 (api doc-comment sweep). Open by choice:
+> B5 (dual status idiom — breaking, post-1.0), C6 (externalDomain how-to),
+> E4 (docs/research relocation).
+
 ## A. Real inconsistencies found (docs already fixed where possible)
 
 1. **`just test-integration` cannot pass as written.** The recipe sets

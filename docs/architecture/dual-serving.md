@@ -6,7 +6,7 @@ Every tenant CR kind carries an optional `spec.instance` — a pin naming the Zi
 
 | `spec.instance` on the CR | This operator's behavior |
 | --- | --- |
-| Matches this operator's domain | Reconcile normally through the resolved scope; `InstanceResolved=True / Pinned` |
+| Matches this operator's instance identity (`instanceAlias`, default `domain`) | Reconcile normally through the resolved scope; `InstanceResolved=True / Pinned` |
 | A foreign domain | **Completely untouched** — no finalizer, no status writes, no Zitadel calls. The CR belongs to the other operator. |
 | Unset, no other operator seen | Reconcile normally; the operator announces itself first (`InstanceResolved=True / Assumed`) |
 | Unset, namespace is dual-served | **Both operators fail closed**: `InstanceResolved=False / AmbiguousInstance`, no external action from either |
@@ -17,7 +17,7 @@ Repinning a CR from one domain to the other hands it over cleanly: the old owner
 
 There is no coordination channel between the operators — detection rides on Server-Side Apply managed fields:
 
-1. Before its first external action on an unpinned CR, an operator SSA-writes a presence condition (`InstanceResolved=True / Assumed`) through its own field manager `zitadel-operator/<domain>`.
+1. Before its first external action on an unpinned CR, an operator SSA-writes a presence condition (`InstanceResolved=True / Assumed`) through its own field manager `zitadel-operator/<instance identity>`.
 2. Every operator checks the CR's `managedFields` for a *different* `zitadel-operator/*` field manager.
 3. If one exists, the namespace is dual-served: the operator sets `InstanceResolved=False / AmbiguousInstance` and stops. The condition content is deterministic and identical from every operator, so co-ownership converges instead of flapping.
 

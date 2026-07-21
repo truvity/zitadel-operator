@@ -16,7 +16,7 @@ v0.18 replaces the two implicit routing mechanisms (`defaultOrganizationId`, `pr
 
 One operator = one instance + one credential, as before; new in v0.18 the config asserts what that credential is (`binding: iam-owner | org-owner`, required), verified at startup against `AuthService.ListMyMemberships` — mismatch crashes before any reconcile. Degradation under `org-owner` is uniform, not per-feature: one validation matrix (binding level × scope shape); instance-level paths get `NotSupportedAtBindingLevel`, foreign-org maps are rejected with an Event.
 
-## ZitadelScopeMap CRD
+## ScopeMap CRD
 
 A **namespaced CRD** evaluated only in the operator's own namespace — the map's location is part of its authority. Deliberately *not* a ConfigMap: the survey (ArgoCD, Keycloak, ESO, Capsule, Crossplane) found zero precedent for ConfigMap-based semantic routing, and a CRD buys OpenAPI validation, a status subresource, printer columns, and per-object RBAC.
 

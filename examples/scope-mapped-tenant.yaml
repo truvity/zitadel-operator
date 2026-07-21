@@ -1,0 +1,33 @@
+# A ScopeMap (admin-owned, in the operator's namespace) routes every
+# namespace labeled tenancy.example.com/company=acme to the Acme org's
+# "acme-platform" project. Tenant CRs in those namespaces then need no
+# organization or project references — the scope supplies both.
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: ScopeMap
+metadata:
+  name: acme-corp
+  namespace: zitadel-operator            # the operator's own namespace
+spec:
+  instance: prod-internal                # the operator's instanceAlias (or domain)
+  organizationId: "325908855630427886"   # authoritative; name optional
+  organization: Acme Corp                # informational (drift-checked)
+  rules:
+    - name: acme-product-namespaces
+      namespaceSelector:
+        matchLabels:
+          tenancy.example.com/company: acme
+      project: acme-platform             # project scope; created on first use
+---
+# A tenant app in a routed namespace: no projectRef/projectId needed.
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: OIDCApp
+metadata:
+  name: billing-web
+  namespace: acme-billing                # labeled tenancy.example.com/company=acme
+spec:
+  type: confidential
+  authMethod: basic
+  redirectUris:
+    - https://billing.acme.example.com/auth/callback
+  secretRef:
+    name: billing-web-oidc               # client_id + client_secret land here

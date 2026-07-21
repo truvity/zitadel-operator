@@ -495,10 +495,11 @@ go test -tags=integration -v -run TestOIDCApp/S-030_idempotency ./tests/integrat
 - **Expect:** operator detects drift and reconciles back to 5
 - **Test:** `TestDefaultLockoutPolicy_DriftDetection`
 
-### S-161: DefaultLockoutPolicy — duplicate creation (last-writer-wins)
+### S-161: DefaultLockoutPolicy — duplicate creation (earliest wins)
 - Create two DefaultLockoutPolicy CRs with different maxPasswordAttempts values
-- **Expect:** both become Ready=true (both successfully call UpdateLockoutPolicy)
-- **Expect:** actual Zitadel value matches whichever CR reconciled last
+- **Expect:** the earliest-created CR wins and stays Ready=true
+- **Expect:** the later CR gets Ready=False / DuplicateSingleton and does not reconcile against Zitadel
+- **Expect:** equal creation timestamps (1s granularity) tie-break deterministically by namespace/name (v0.18)
 - **Test:** `TestDefaultLockoutPolicy_DuplicateCreation`
 
 ---
@@ -712,7 +713,7 @@ All scenarios below are IMPLEMENTED and run against the dedicated test instance;
 - **Test:** `TestDualServe_InstancePin_ForeignInstanceIgnored`
 
 ### S-241: Dual-serving — AmbiguousInstance two-manager SSA smoke
-- Two reconcilers with distinct `zitadel-operator/<domain>` field managers serve one namespace; unpinned CR: the second operator detects the first via managedFields and marks `InstanceResolved=False / AmbiguousInstance` WITHOUT wiping the first's conditions; the first fails closed too (no external updates); pinning `spec.instance` resolves the ambiguity
+- Two reconcilers with distinct `zitadel-operator/<instance identity>` field managers serve one namespace; unpinned CR: the second operator detects the first via managedFields and marks `InstanceResolved=False / AmbiguousInstance` WITHOUT wiping the first's conditions; the first fails closed too (no external updates); pinning `spec.instance` resolves the ambiguity
 - **Test:** `TestDualServe_AmbiguousInstance_TwoManagers`
 
 ### S-250: MachineUser — scope roles + connection bundle (INF-426)

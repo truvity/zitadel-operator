@@ -1,0 +1,41 @@
+# Per-cluster onboarding without scope maps (passthrough mode): explicit
+# organization references everywhere, as required since v0.18 removed
+# defaultOrganizationId.
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: Project
+metadata:
+  name: cluster-prod-eu
+  namespace: zitadel-operator
+spec:
+  organizationId: "325908855630427886"
+  roles: [admin, viewer]
+---
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: OIDCApp
+metadata:
+  name: kubelogin
+  namespace: zitadel-operator
+spec:
+  projectRef:
+    name: cluster-prod-eu
+  type: confidential
+  authMethod: basic
+  redirectUris:
+    - http://localhost:8000
+  secretRef:
+    name: kubelogin-oidc
+---
+# Machine identity with dual-key rotation and a connection-bundle Secret
+# (key.json + instanceUrl + issuer + orgId [+ projectId in project scopes]).
+apiVersion: zitadel.truvity.io/v1alpha2
+kind: MachineUser
+metadata:
+  name: cluster-prod-eu-ci
+  namespace: zitadel-operator
+spec:
+  organizationId: "325908855630427886"
+  userName: cluster-prod-eu-ci
+  key:
+    rotateAfter: 2160h                   # 90 days; old key revoked after grace
+  keySecretRef:
+    name: cluster-prod-eu-ci-key
