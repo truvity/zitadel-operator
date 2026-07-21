@@ -1,0 +1,12 @@
+# Configuration for the generated CRD API reference (docs/reference/api.md).
+# Generator: github.com/elastic/crd-ref-docs (pinned in the Justfile).
+# Regenerate with `just generate`; CI fails via `just verify-generate` when
+# the committed output is stale.
+processor:
+  # List types are plumbing, not user surface.
+  ignoreTypes:
+    - ".*List$"
+  ignoreFields:
+    - "TypeMeta$"
+render:
+  kubernetesVersion: "1.33"
