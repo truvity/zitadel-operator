@@ -161,7 +161,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 			Namespace: cfg.OperatorNamespace,
 			Instance:  cfg.InstanceIdentity(),
 			Synced:    synced.Load,
-			Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"),
+			Recorder:  mgr.GetEventRecorderFor("scopemap-resolver"), //nolint:staticcheck // SA1019: record.EventRecorder API; events.EventRecorder migration is a separate chore
 		}
 		delegationMgr = &delegation.Manager{
 			K8s:     mgr.GetClient(),
@@ -196,7 +196,7 @@ func main() { //nolint:gocyclo // controller registration is inherently sequenti
 			Config:    cfg,
 			Instance:  cfg.InstanceIdentity(),
 			Namespace: cfg.OperatorNamespace,
-			Recorder:  mgr.GetEventRecorderFor("scopemap"),
+			Recorder:  mgr.GetEventRecorderFor("scopemap"), //nolint:staticcheck // SA1019: record.EventRecorder API; events.EventRecorder migration is a separate chore
 			GC:        gc,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ScopeMap")
