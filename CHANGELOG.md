@@ -2,7 +2,9 @@
 
 All notable changes to the zitadel-operator are documented here.
 
-## [Unreleased] — v0.19 "fleet simplification"
+## [Unreleased]
+
+## [0.19.0] — 2026-07-22 "fleet simplification"
 
 A strictly **additive** minor release serving the fleet deployment shape — one org = one SA = one operator, no ScopeMaps — now documented as the recommended topology in [docs/install/deployment-shapes.md](docs/install/deployment-shapes.md). ScopeMaps, `iam-owner` bindings and delegation remain fully supported.
 
