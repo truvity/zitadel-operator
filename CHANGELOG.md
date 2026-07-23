@@ -4,6 +4,15 @@ All notable changes to the zitadel-operator are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Zitadel client calls are now bounded — a dead connection can no longer wedge a controller worker forever.** The SDK's JWT-profile auth fetches an OAuth token with an HTTP POST *per RPC*, on `context.Background()`, through a shared HTTP client with **no timeout**: when the pooled HTTP/2 connection to the token endpoint died silently (observed in production: a `connection reset by peer` followed by total controller silence — the single reconcile worker blocked inside the token fetch, healthz still green, restart re-wedged within a minute). Four layers now bound every call:
+  - the token-endpoint HTTP client carries a hard 30 s request timeout;
+  - its HTTP/2 transport health-checks pooled connections (`ReadIdleTimeout` 30 s / `PingTimeout` 15 s), so dead connections are closed and redialed;
+  - tokens are cached via `oauth2.ReuseTokenSource` (one token fetch per expiry instead of one per RPC);
+  - the gRPC channel gets keepalive pings (30 s / 20 s, also without active streams) and a default 60 s deadline on any unary call whose context has none.
+  Both standard and split-horizon modes are covered. A stuck call now fails with an error, the reconcile requeues with backoff, and the operator self-heals.
+
 ## [0.19.0] — 2026-07-22 "fleet simplification"
 
 A strictly **additive** minor release serving the fleet deployment shape — one org = one SA = one operator, no ScopeMaps — now documented as the recommended topology in [docs/install/deployment-shapes.md](docs/install/deployment-shapes.md). ScopeMaps, `iam-owner` bindings and delegation remain fully supported.

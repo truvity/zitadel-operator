@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/client/profile"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -22,9 +23,32 @@ import (
 	settingsv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/settings/v2"
 	userv2 "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"github.com/zitadel/zitadel-go/v3/pkg/zitadel"
+	"golang.org/x/net/http2"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
+)
+
+// Every Zitadel call the operator makes must be bounded: the SDK fetches an
+// OAuth token via a per-RPC HTTP POST that ignores the RPC context (the token
+// source's Token() runs on context.Background()), so an unbounded HTTP client
+// on a silently-dropped connection wedges a controller worker forever — no
+// error, no requeue, healthz still green.
+const (
+	// tokenHTTPTimeout bounds the whole OAuth token-endpoint request.
+	tokenHTTPTimeout = 30 * time.Second
+	// h2ReadIdleTimeout/h2PingTimeout health-check pooled HTTP/2 connections
+	// to the token endpoint so a dead connection is closed and redialed
+	// instead of queueing requests forever.
+	h2ReadIdleTimeout = 30 * time.Second
+	h2PingTimeout     = 15 * time.Second
+	// defaultRPCTimeout is applied to any gRPC call whose context has no
+	// deadline of its own.
+	defaultRPCTimeout = 60 * time.Second
+	// keepaliveTime/keepaliveTimeout detect dead gRPC transports.
+	keepaliveTime    = 30 * time.Second
+	keepaliveTimeout = 20 * time.Second
 )
 
 // Client wraps the official Zitadel SDK and exposes v2 service clients.
@@ -75,12 +99,27 @@ func NewClient(ctx context.Context, cfg *ClientConfig) (*Client, error) {
 		zitadelOpts = append(zitadelOpts, zitadel.WithPort(mustParsePort(cfg.Port)))
 	}
 
+	httpClient, err := tokenHTTPClient(nil)
+	if err != nil {
+		return nil, fmt.Errorf("building token HTTP client: %w", err)
+	}
 	clientOpts := []zitadelclient.Option{
-		zitadelclient.WithAuth(zitadelclient.AuthenticationJWTProfile(
-			keyFile,
-			oidc.ScopeOpenID,
-			zitadelclient.ScopeZitadelAPI(),
-		)),
+		// Not AuthenticationJWTProfile: the SDK builds a bare token source
+		// that POSTs the token endpoint on every RPC with no HTTP timeout
+		// (see the timeout constants above). Same JWT profile flow, but with
+		// a bounded HTTP client and a ReuseTokenSource cache.
+		zitadelclient.WithAuth(func(ctx context.Context, issuer string) (oauth2.TokenSource, error) {
+			ts, err := profile.NewJWTProfileTokenSource(
+				ctx, issuer, keyFile.UserID, keyFile.KeyID, keyFile.Key,
+				[]string{oidc.ScopeOpenID, zitadelclient.ScopeZitadelAPI()},
+				profile.WithHTTPClient(httpClient),
+			)
+			if err != nil {
+				return nil, err
+			}
+			return oauth2.ReuseTokenSource(nil, ts), nil
+		}),
+		zitadelclient.WithGRPCDialOptions(boundedDialOptions()...),
 	}
 	if cfg.InsecurePlaintext {
 		clientOpts = append(clientOpts,
@@ -96,6 +135,60 @@ func NewClient(ctx context.Context, cfg *ClientConfig) (*Client, error) {
 	return &Client{inner: inner}, nil
 }
 
+// tokenHTTPClient returns the HTTP client used for OAuth token-endpoint
+// requests: hard request timeout plus HTTP/2 ping health-checking, so a
+// silently-dead pooled connection is detected and redialed instead of
+// blocking token fetches (and with them every gRPC call) forever.
+// A non-nil wrap decorates the health-checked transport (split-horizon
+// header injection).
+func tokenHTTPClient(wrap func(http.RoundTripper) http.RoundTripper) (*http.Client, error) {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("http.DefaultTransport is not *http.Transport")
+	}
+	transport = transport.Clone()
+	h2, err := http2.ConfigureTransports(transport)
+	if err != nil {
+		return nil, fmt.Errorf("configuring HTTP/2 transport: %w", err)
+	}
+	h2.ReadIdleTimeout = h2ReadIdleTimeout
+	h2.PingTimeout = h2PingTimeout
+
+	inner := http.RoundTripper(transport)
+	if wrap != nil {
+		inner = wrap(transport)
+	}
+	return &http.Client{Timeout: tokenHTTPTimeout, Transport: inner}, nil
+}
+
+// boundedDialOptions returns the gRPC dial options every Zitadel connection
+// gets: keepalive pings that fail dead transports, and a default deadline on
+// any call whose context does not carry one.
+func boundedDialOptions() []grpc.DialOption {
+	return []grpc.DialOption{
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                keepaliveTime,
+			Timeout:             keepaliveTimeout,
+			PermitWithoutStream: true,
+		}),
+		grpc.WithChainUnaryInterceptor(defaultTimeoutUnaryInterceptor(defaultRPCTimeout)),
+	}
+}
+
+// defaultTimeoutUnaryInterceptor bounds deadline-less unary calls. Contexts
+// that already carry a deadline (e.g. tests, callers with their own budget)
+// pass through untouched.
+func defaultTimeoutUnaryInterceptor(d time.Duration) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		if _, ok := ctx.Deadline(); !ok {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, d)
+			defer cancel()
+		}
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+}
+
 // newSplitHorizonClient creates a client that connects to an internal service
 // while authenticating against the external domain.
 //
@@ -109,12 +202,16 @@ func newSplitHorizonClient(ctx context.Context, cfg *ClientConfig, keyFile *zita
 	issuer := "https://" + cfg.ExternalDomain
 	tokenEndpoint := "http://" + cfg.Domain + ":" + cfg.Port + "/oauth/v2/token"
 
-	// HTTP client that adds the instance host header to token requests.
-	httpClient := &http.Client{
-		Transport: &instanceHeaderTransport{
+	// HTTP client that adds the instance host header to token requests
+	// (bounded + health-checked, see tokenHTTPClient).
+	httpClient, err := tokenHTTPClient(func(inner http.RoundTripper) http.RoundTripper {
+		return &instanceHeaderTransport{
 			instanceHost: cfg.ExternalDomain,
-			inner:        http.DefaultTransport,
-		},
+			inner:        inner,
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("building token HTTP client: %w", err)
 	}
 
 	tokenSource, err := profile.NewJWTProfileTokenSource(
@@ -130,6 +227,9 @@ func newSplitHorizonClient(ctx context.Context, cfg *ClientConfig, keyFile *zita
 	if err != nil {
 		return nil, fmt.Errorf("creating token source: %w", err)
 	}
+	// Cache tokens until expiry: without this the SDK POSTs the token
+	// endpoint on every single RPC.
+	cachedTokenSource := oauth2.ReuseTokenSource(nil, tokenSource)
 
 	// SDK configuration: connect to internal domain, add instance header for gRPC.
 	zitadelOpts := []zitadel.Option{
@@ -139,9 +239,10 @@ func newSplitHorizonClient(ctx context.Context, cfg *ClientConfig, keyFile *zita
 
 	clientOpts := []zitadelclient.Option{
 		zitadelclient.WithAuth(func(_ context.Context, _ string) (oauth2.TokenSource, error) {
-			return tokenSource, nil
+			return cachedTokenSource, nil
 		}),
 		zitadelclient.WithGRPCDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())),
+		zitadelclient.WithGRPCDialOptions(boundedDialOptions()...),
 	}
 
 	inner, err := zitadelclient.New(ctx, zitadel.New(cfg.Domain, zitadelOpts...), clientOpts...)
