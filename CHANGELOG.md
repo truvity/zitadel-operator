@@ -4,6 +4,8 @@ All notable changes to the zitadel-operator are documented here.
 
 ## [Unreleased]
 
+## [0.19.1] — 2026-07-24
+
 ### Fixed
 
 - **Zitadel client calls are now bounded — a dead connection can no longer wedge a controller worker forever.** The SDK's JWT-profile auth fetches an OAuth token with an HTTP POST *per RPC*, on `context.Background()`, through a shared HTTP client with **no timeout**: when the pooled HTTP/2 connection to the token endpoint died silently (observed in production: a `connection reset by peer` followed by total controller silence — the single reconcile worker blocked inside the token fetch, healthz still green, restart re-wedged within a minute). Four layers now bound every call:
