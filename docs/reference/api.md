@@ -2032,6 +2032,7 @@ _Appears in:_
 | `accessTokenType` _string_ | AccessTokenType selects the access token format: "bearer" (opaque,<br />default) or "jwt" (self-contained, locally verifiable). |  | Enum: [bearer jwt] <br />Optional: \{\} <br /> |
 | `accessTokenRoleAssertion` _boolean_ | AccessTokenRoleAssertion includes the user's project role claims in<br />the access token. |  | Optional: \{\} <br /> |
 | `idTokenRoleAssertion` _boolean_ | IdTokenRoleAssertion includes the user's project role claims in the ID token. |  | Optional: \{\} <br /> |
+| `idTokenUserinfoAssertion` _boolean_ | IdTokenUserinfoAssertion asserts the userinfo claims (including<br />action-appended claims such as the rbac-mapper's groups) into the ID<br />token at issuance. Required for consumers that read groups from the ID<br />token (ArgoCD, kubelogin-style flows). |  | Optional: \{\} <br /> |
 | `secretRef` _[SecretRefSpec](#secretrefspec)_ | SecretRef references the Secret where the client credentials will be stored. |  |  |
 
 

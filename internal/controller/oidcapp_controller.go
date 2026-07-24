@@ -211,6 +211,7 @@ func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string,
 				AccessTokenType:          accessTokenType,
 				AccessTokenRoleAssertion: cr.Spec.AccessTokenRoleAssertion,
 				IdTokenRoleAssertion:     cr.Spec.IdTokenRoleAssertion,
+				IdTokenUserinfoAssertion: cr.Spec.IdTokenUserinfoAssertion,
 			},
 		},
 	})
@@ -260,8 +261,9 @@ func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, pr
 
 	accessTokenRoleChanged := oidcConfig.GetAccessTokenRoleAssertion() != cr.Spec.AccessTokenRoleAssertion
 	idTokenRoleChanged := oidcConfig.GetIdTokenRoleAssertion() != cr.Spec.IdTokenRoleAssertion
+	idTokenUserinfoChanged := oidcConfig.GetIdTokenUserinfoAssertion() != cr.Spec.IdTokenUserinfoAssertion
 
-	if !redirectsChanged && !postLogoutChanged && !accessTokenTypeChanged && !accessTokenRoleChanged && !idTokenRoleChanged {
+	if !redirectsChanged && !postLogoutChanged && !accessTokenTypeChanged && !accessTokenRoleChanged && !idTokenRoleChanged && !idTokenUserinfoChanged {
 		return nil
 	}
 
@@ -272,6 +274,7 @@ func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, pr
 		"accessTokenTypeChanged", accessTokenTypeChanged,
 		"accessTokenRoleChanged", accessTokenRoleChanged,
 		"idTokenRoleChanged", idTokenRoleChanged,
+		"idTokenUserinfoChanged", idTokenUserinfoChanged,
 	)
 
 	// INF-400 root cause: sending the (unchanged) Name alongside a changed
@@ -294,6 +297,7 @@ func (r *OIDCAppReconciler) updateOIDCAppIfNeeded(ctx context.Context, appID, pr
 				AccessTokenType:          &desiredAccessTokenType,
 				AccessTokenRoleAssertion: &cr.Spec.AccessTokenRoleAssertion,
 				IdTokenRoleAssertion:     &cr.Spec.IdTokenRoleAssertion,
+				IdTokenUserinfoAssertion: &cr.Spec.IdTokenUserinfoAssertion,
 			},
 		},
 	})

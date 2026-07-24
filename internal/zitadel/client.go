@@ -135,6 +135,13 @@ func NewClient(ctx context.Context, cfg *ClientConfig) (*Client, error) {
 	return &Client{inner: inner}, nil
 }
 
+// NewFromSDK wraps an already-constructed SDK client. Unit tests use this to
+// point controllers at an in-process fake gRPC server; production code goes
+// through NewClient.
+func NewFromSDK(inner *zitadelclient.Client) *Client {
+	return &Client{inner: inner}
+}
+
 // tokenHTTPClient returns the HTTP client used for OAuth token-endpoint
 // requests: hard request timeout plus HTTP/2 ping health-checking, so a
 // silently-dead pooled connection is detected and redialed instead of

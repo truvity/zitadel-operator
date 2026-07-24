@@ -72,6 +72,13 @@ spec:
                 description: IdTokenRoleAssertion includes the user's project role
                   claims in the ID token.
                 type: boolean
+              idTokenUserinfoAssertion:
+                description: |-
+                  IdTokenUserinfoAssertion asserts the userinfo claims (including
+                  action-appended claims such as the rbac-mapper's groups) into the ID
+                  token at issuance. Required for consumers that read groups from the ID
+                  token (ArgoCD, kubelogin-style flows).
+                type: boolean
               instance:
                 description: |-
                   Instance optionally pins this resource to one operator's instance

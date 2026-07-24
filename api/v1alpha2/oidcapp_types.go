@@ -64,6 +64,13 @@ type OIDCAppSpec struct {
 	// +optional
 	IdTokenRoleAssertion bool `json:"idTokenRoleAssertion,omitempty"`
 
+	// IdTokenUserinfoAssertion asserts the userinfo claims (including
+	// action-appended claims such as the rbac-mapper's groups) into the ID
+	// token at issuance. Required for consumers that read groups from the ID
+	// token (ArgoCD, kubelogin-style flows).
+	// +optional
+	IdTokenUserinfoAssertion bool `json:"idTokenUserinfoAssertion,omitempty"`
+
 	// SecretRef references the Secret where the client credentials will be stored.
 	SecretRef SecretRefSpec `json:"secretRef"`
 }
