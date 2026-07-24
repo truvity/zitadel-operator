@@ -4,6 +4,10 @@ All notable changes to the zitadel-operator are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **`OIDCApp` `spec.idTokenUserinfoAssertion`** (optional, default `false`): asserts the userinfo claims — including action-appended claims such as the rbac-mapper's `groups` — into the ID token at issuance. Required for consumers that read groups from the ID token (ArgoCD, kubelogin-style flows). Applied at creation and drift-corrected on every sync.
+
 ## [0.19.1] — 2026-07-24
 
 ### Fixed
