@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/stretchr/testify v1.11.1
 	github.com/zalando/go-keyring v0.2.8
-	github.com/zitadel/oidc/v3 v3.48.0
+	github.com/zitadel/oidc/v3 v3.48.1
 	github.com/zitadel/zitadel-go/v3 v3.29.2
 	golang.org/x/net v0.57.0
 	golang.org/x/oauth2 v0.36.0
