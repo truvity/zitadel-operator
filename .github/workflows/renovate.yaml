@@ -20,7 +20,7 @@ jobs:
           client-id: ${{ vars.RENOVATE_CLIENT_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
 
-      - uses: renovatebot/github-action@v46.1.21
+      - uses: renovatebot/github-action@v46.2.0
         with:
           token: ${{ steps.token.outputs.token }}
         env:
