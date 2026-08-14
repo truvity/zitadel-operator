@@ -1,36 +1,69 @@
 {
-  "extends": ["config:recommended", "security:gomodIndirectSecurityUpdates"],
+  "extends": [
+    "config:recommended",
+    "security:gomodIndirectSecurityUpdates"
+  ],
   "osvVulnerabilityAlerts": true,
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
   "automerge": true,
   "automergeType": "pr",
   "automergeStrategy": "rebase",
   "platformAutomerge": true,
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 6am"]
+    "schedule": [
+      "before 6am"
+    ]
   },
-  "ignorePaths": ["devbox.json", "devbox.lock"],
+  "ignorePaths": [
+    "devbox.json",
+    "devbox.lock"
+  ],
   "packageRules": [
     {
       "description": "Group all non-major updates together",
-      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
       "groupName": "all non-major dependencies",
       "groupSlug": "all-minor-patch"
     },
     {
       "description": "Automerge all non-major updates",
-      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
       "automerge": true
     },
     {
       "description": "Do not automerge major updates",
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "automerge": false
+    },
+    {
+      "description": "Bump the Go toolchain \u2014 stdlib CVEs land there and govulncheck reds otherwise wait for a human",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDepNames": [
+        "go"
+      ],
+      "enabled": true,
+      "rangeStrategy": "bump"
     }
   ],
   "vulnerabilityAlerts": {
-    "labels": ["security"],
+    "labels": [
+      "security"
+    ],
     "automerge": true
   }
 }
