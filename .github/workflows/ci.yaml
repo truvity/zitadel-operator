@@ -1,3 +1,13 @@
+# CI now calls the shared workflow (truvity/ci-workflows), which fans the
+# Justfile recipes out into PARALLEL jobs — one per recipe, each reporting
+# under its own name. Before this they ran serially inside a single
+# `just check` and a red result told you only that something failed.
+#
+# The recipe list mirrors this repo's own `check` recipe, so CI and a
+# laptop still run the same thing; they just no longer run it the same way.
+#
+# Pinned by COMMIT SHA, never by tag or branch: tags move, and every
+# repository in both organizations runs that code.
 name: CI
 
 on:
@@ -9,26 +19,23 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  recipes:
+    uses: truvity/ci-workflows/.github/workflows/check.yaml@26ba8e02e734238a173781304e42fad91be429c0
+    with:
+      recipes: '["build","test","lint","vuln","verify-generate"]'
+
+  # A stable context name for branch protection. The matrix jobs report as
+  # "recipes / build" and so on, so a required context naming them would
+  # break the moment a recipe is added or renamed.
   check:
+    needs: recipes
+    if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - uses: DeterminateSystems/determinate-nix-action@v3
-
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          # devbox.lock in the key: the go-build cache holds artifacts
-          # linked against nix store paths — a toolchain bump with a stale
-          # restored cache yields "fork/exec ...: no such file" in go test.
-          key: go-${{ runner.os }}-${{ hashFiles('devbox.lock') }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-${{ runner.os }}-${{ hashFiles('devbox.lock') }}-
-
-      - name: Install devbox
-        run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
-
-      - run: devbox run -- just check
+      - run: '[ "${{ needs.recipes.result }}" = "success" ]'
