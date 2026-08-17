@@ -10,20 +10,20 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
+  # The same recipe the shared workflow runs everywhere else, instead of
+  # a hand-rolled copy that installed devbox through an UNPINNED
+  # `curl | bash` -- eight repositories carried that identical block.
+  #
+  # Deliberately NOT in ci.yaml's recipe list, and deliberately not a
+  # required context. A standard-library advisory with no released fix
+  # would otherwise wedge every pull request on a finding nobody can act
+  # on, which is exactly what happened to pulumi-zitadel.
   govulncheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: DeterminateSystems/determinate-nix-action@v3
-
-      - name: Install devbox
-        run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
-
-      - run: devbox run -- govulncheck ./...
+    uses: truvity/ci-workflows/.github/workflows/check.yaml@6d7352b5fe172b46ae0fca37242f9ee91855f57e # v2.2.0
+    with:
+      recipes: '["vuln"]'
 
   trivy:
     runs-on: ubuntu-latest

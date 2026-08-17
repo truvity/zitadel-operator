@@ -25,9 +25,9 @@ concurrency:
 
 jobs:
   recipes:
-    uses: truvity/ci-workflows/.github/workflows/check.yaml@26ba8e02e734238a173781304e42fad91be429c0
+    uses: truvity/ci-workflows/.github/workflows/check.yaml@6d7352b5fe172b46ae0fca37242f9ee91855f57e # v2.2.0
     with:
-      recipes: '["build","test","lint","vuln","verify-generate"]'
+      recipes: '["build","test","lint","verify-generate"]'
 
   # A stable context name for branch protection. The matrix jobs report as
   # "recipes / build" and so on, so a required context naming them would
