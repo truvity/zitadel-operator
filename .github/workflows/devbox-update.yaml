@@ -12,7 +12,7 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: token
         with:
           app-id: ${{ secrets.RENOVATE_APP_ID }}
@@ -26,7 +26,7 @@ jobs:
         with:
           token: ${{ steps.token.outputs.token }}
 
-      - uses: DeterminateSystems/determinate-nix-action@v3
+      - uses: DeterminateSystems/determinate-nix-action@61cbfe2efc2d4e7a8a6d56967c3c1058e846c858 # v3
 
       - name: Install devbox
         run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
