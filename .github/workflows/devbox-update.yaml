@@ -9,46 +9,14 @@ permissions:
   contents: read
 
 jobs:
+  # The hand-rolled copy this replaces passed `app-id:
+  # ${{ secrets.RENOVATE_APP_ID }}`, a secret this org no longer sets, so
+  # every weekly run died on "The 'client-id' (or deprecated 'app-id')
+  # input must be set to a non-empty string" before it reached devbox.
+  # The shared workflow selects the App by this repository's own
+  # RENOVATE_CLIENT_ID variable, and `secrets: inherit` is what makes the
+  # private key reach it at all. Same migration gitops completed in
+  # INF-556 — this repository was simply left behind.
   update:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        id: token
-        with:
-          app-id: ${{ secrets.RENOVATE_APP_ID }}
-          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
-
-      # Checkout with the app token: the default GITHUB_TOKEN is
-      # contents:read, so the git push in "Create PR if changes" gets 403
-      # (every weekly run failed this way; the app token was only used
-      # for gh pr create).
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          token: ${{ steps.token.outputs.token }}
-
-      - uses: DeterminateSystems/determinate-nix-action@61cbfe2efc2d4e7a8a6d56967c3c1058e846c858 # v3
-
-      - name: Install devbox
-        run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
-
-      - name: Update devbox packages
-        run: devbox update
-
-      - name: Create PR if changes
-        env:
-          GH_TOKEN: ${{ steps.token.outputs.token }}
-        run: |
-          if git diff --quiet; then
-            echo "No changes"
-            exit 0
-          fi
-          BRANCH="chore/devbox-update-$(date +%Y%m%d)"
-          git config user.name "truvity-renovate[bot]"
-          git config user.email "truvity-renovate[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
-          git add devbox.json devbox.lock
-          git commit -m "chore(deps): update devbox packages"
-          git push origin "$BRANCH"
-          gh pr create --title "chore(deps): update devbox packages" --body "Automated weekly devbox update." --base master --label dependencies
-          # Arm auto-merge: merges when required checks pass (rebase works in every repo)
-          gh pr merge --auto --rebase "$BRANCH"
+    uses: truvity/ci-workflows/.github/workflows/devbox-update.yaml@beebff165bcad38e730ffba8ba02bc9deaf66e8a # v2.5.0
+    secrets: inherit
