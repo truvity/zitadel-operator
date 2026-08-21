@@ -1,3 +1,19 @@
+# Self-hosted Renovate, daily — the shared implementation.
+#
+# The App identity is carried by the CREDENTIAL NAMES, not by the
+# workflow: it reads vars.RENOVATE_CLIENT_ID and
+# secrets.RENOVATE_APP_PRIVATE_KEY, org-level on the public estate. The
+# shared workflow skips cleanly while the variable is unset, so the file
+# is safe to carry before the entitlement exists.
+#
+# What this buys a PUBLIC repository specifically: nothing else moves
+# the ci-workflows pins in ci.yaml — a repo without renovate is a repo
+# whose pins can never move (github-actions.md, gitops).
+#
+# `secrets: inherit` is mandatory. A called workflow receives none of the
+# caller's secrets otherwise; `vars` resolve and secrets do not, and the
+# failure reads as "'client-id' … must be set to a non-empty string",
+# which looks like a malformed workflow rather than a missing entitlement.
 name: Renovate
 
 on:
@@ -10,20 +26,5 @@ permissions:
 
 jobs:
   renovate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        id: token
-        with:
-          client-id: ${{ vars.RENOVATE_CLIENT_ID }}
-          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
-
-      - uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2
-        with:
-          token: ${{ steps.token.outputs.token }}
-        env:
-          LOG_LEVEL: info
-          RENOVATE_REPOSITORIES: ${{ github.repository }}
-          GITHUB_COM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: truvity/ci-workflows/.github/workflows/renovate.yaml@b4f9f362b30dc38ce94b96cd3655456f3559846e # v2.9.0
+    secrets: inherit

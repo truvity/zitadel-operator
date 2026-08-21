@@ -35,6 +35,6 @@ jobs:
     permissions:
       contents: write
       packages: write
-    uses: truvity/ci-workflows/.github/workflows/release-public.yaml@87812fb4062661417d9fb88f7fcd5089019a1677 # v2.7.0
+    uses: truvity/ci-workflows/.github/workflows/release-public.yaml@b4f9f362b30dc38ce94b96cd3655456f3559846e # v2.9.0
     with:
       charts: '["zitadel-operator", "zitadel-operator-crds"]'
