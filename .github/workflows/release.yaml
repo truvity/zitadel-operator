@@ -38,3 +38,10 @@ jobs:
     uses: truvity/ci-workflows/.github/workflows/release-public.yaml@b4f9f362b30dc38ce94b96cd3655456f3559846e # v2.9.0
     with:
       charts: '["zitadel-operator", "zitadel-operator-crds"]'
+      # The image path the CHARTS have always referenced. Without this,
+      # release-public's default (ghcr.io/truvity) sent v0.19.5's image
+      # to ghcr.io/truvity/operator while every chart pulled
+      # .../zitadel-operator/operator — the operator Applications sat in
+      # ImagePullBackOff fleet-wide on the first tag through the shared
+      # workflow. Release machinery can only be tested by a real tag.
+      ko-docker-repo: ghcr.io/truvity/zitadel-operator
