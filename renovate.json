@@ -50,7 +50,7 @@
       "automerge": false
     },
     {
-      "description": "Bump the Go toolchain \u2014 stdlib CVEs land there and govulncheck reds otherwise wait for a human",
+      "description": "Bump the Go toolchain at PATCH level only \u2014 stdlib CVEs land there and govulncheck reds otherwise wait for a human",
       "matchManagers": [
         "gomod"
       ],
@@ -58,7 +58,24 @@
         "go"
       ],
       "enabled": true,
-      "rangeStrategy": "bump"
+      "rangeStrategy": "bump",
+      "matchUpdateTypes": [
+        "patch"
+      ]
+    },
+    {
+      "description": "A MINOR Go bump must wait for the toolchain: golangci-lint from nixpkgs is built against the current Go line and refuses a newer target (go1.27 directive vs golangci built with go1.26 red-flagged every group PR, 2026-08-22). devbox-update moves go, golangci-lint and the directive in lockstep; renovate must not race ahead of it.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDepNames": [
+        "go"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "enabled": false
     }
   ],
   "vulnerabilityAlerts": {
