@@ -83,5 +83,6 @@
       "security"
     ],
     "automerge": true
-  }
+  },
+  "constraintsFiltering": "strict"
 }
