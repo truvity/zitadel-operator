@@ -56,7 +56,22 @@ clean:
     rm -rf bin/ dist/ coverage.out
 
 # Run all checks (build + test + lint + vuln + verify generated files)
-check: build test lint vuln verify-generate
+# Render both charts with representative values; prove the schema rejects
+# an unknown key (values.schema.json is the contract — a typo must fail
+# the render, not be silently ignored).
+chart-lint:
+    helm lint charts/zitadel-operator charts/zitadel-operator-crds
+    helm template zitadel-operator charts/zitadel-operator \
+        --set config.domain=auth.example.com \
+        --set config.binding=org-owner \
+        --set config.instanceAlias=internal \
+        --set 'rbac.namespaces={identity-system}' \
+        --set 'config.watchNamespaces={identity-system}' >/dev/null
+    helm template zitadel-operator-crds charts/zitadel-operator-crds >/dev/null
+    ! helm template zitadel-operator charts/zitadel-operator --set bogusKey=1 >/dev/null 2>&1
+    ! helm template zitadel-operator-crds charts/zitadel-operator-crds --set anything=1 >/dev/null 2>&1
+
+check: build test lint chart-lint vuln verify-generate
 
 # Build a snapshot release locally (no push, no tag)
 snapshot:
