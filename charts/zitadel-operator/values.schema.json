@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "zitadel-operator chart values",
+  "description": "Strict at the top level: unknown keys are rejected so a typo fails the render instead of being silently ignored. Kubernetes passthrough fields (resources, selectors, affinity) stay open.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "global": { "type": "object" },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "replicaCount": { "type": "integer", "minimum": 0 },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "namespaces": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "resources": { "type": "object" },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "domain": { "type": "string" },
+        "port": { "type": "string", "pattern": "^[0-9]+$", "description": "String on purpose — the operator config schema requires it." },
+        "insecure": { "type": "boolean" },
+        "externalDomain": { "type": "string" },
+        "instanceAlias": { "type": "string" },
+        "binding": { "enum": ["", "iam-owner", "org-owner"] },
+        "watchNamespaces": { "type": "array", "items": { "type": "string" } },
+        "operatorNamespace": { "type": "string" }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "secretName": { "type": "string" },
+        "key": { "type": "string" },
+        "mountPath": { "type": "string" }
+      }
+    },
+    "leaderElection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "acknowledgeDisabledRisk": { "type": "boolean" }
+      }
+    },
+    "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+    "tolerations": { "type": "array", "items": { "type": "object" } },
+    "affinity": { "type": "object" }
+  }
+}
