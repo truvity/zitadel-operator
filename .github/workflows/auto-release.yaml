@@ -1,0 +1,26 @@
+# The chain's last mile (INF-590): when renovate's automerged bumps
+# have moved master past the latest release, the shared workflow cuts
+# the next patch tag. DOUBLY GUARDED, off by default: the App
+# credentials must be entitled to this repo AND vars.AUTO_RELEASE must
+# be "true" — flipping it is the deliberate policy act. The v* tag
+# ruleset must carry the App bypass (gitops cfg/github.yaml) or the
+# push is rejected. Cron staggered per repo so Monday's releases don't
+# race each other's gitops pin PRs.
+name: Auto Release
+
+on:
+  schedule:
+    - cron: "38 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    if: vars.AUTO_RELEASE == 'true' && vars.CI_AUTOMATION_APP_ID != ''
+    uses: truvity/ci-workflows/.github/workflows/auto-release.yaml@9a25893002065e1502fc2957252a67b9892af71d # v2.12.3
+    with:
+      app-id: ${{ vars.CI_AUTOMATION_APP_ID }}
+    secrets:
+      CI_AUTOMATION_PRIVATE_KEY: ${{ secrets.CI_AUTOMATION_PRIVATE_KEY }}
