@@ -33,6 +33,7 @@ func TestRBACCoversEveryCRD(t *testing.T) {
 	readOnly := map[string]bool{"scopemaps": true}
 
 	for _, tmpl := range []string{"clusterrole.yaml", "role.yaml"} {
+		//nolint:gosec // G304: the path is repo-local, built from the walked-up module root and a literal template name.
 		raw, err := os.ReadFile(filepath.Join(root, "charts", "zitadel-operator", "templates", tmpl))
 		if err != nil {
 			t.Fatalf("read %s: %v", tmpl, err)
