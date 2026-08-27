@@ -12,6 +12,12 @@ on:
   schedule:
     - cron: "38 6 * * 1"
   workflow_dispatch:
+  # Security lane (ci-workflows v2.15.0): a push whose merged PR
+  # carries renovate's `security` label releases immediately; every
+  # other push exits quietly in the shared workflow, and the weekly
+  # schedule stays the lane for ordinary bumps.
+  push:
+    branches: [master]
 
 permissions:
   contents: read
@@ -19,7 +25,7 @@ permissions:
 jobs:
   tag:
     if: vars.AUTO_RELEASE == 'true' && vars.CI_AUTOMATION_APP_ID != ''
-    uses: truvity/ci-workflows/.github/workflows/auto-release.yaml@9a25893002065e1502fc2957252a67b9892af71d # v2.12.3
+    uses: truvity/ci-workflows/.github/workflows/auto-release.yaml@911931ed031e6885566a625413c42867f2cca598 # v2.15.0
     with:
       app-id: ${{ vars.CI_AUTOMATION_APP_ID }}
     secrets:
