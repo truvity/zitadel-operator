@@ -47,6 +47,7 @@ rules:
       - projectgrantmembers
       - projectgrants
       - projectmembers
+      - projectroles
       - projects
       - samlapps
       - smsproviders
@@ -100,6 +101,7 @@ rules:
       - projectgrantmembers/status
       - projectgrants/status
       - projectmembers/status
+      - projectroles/status
       - projects/status
       - samlapps/status
       - smsproviders/status
@@ -149,6 +151,7 @@ rules:
       - projectgrantmembers/finalizers
       - projectgrants/finalizers
       - projectmembers/finalizers
+      - projectroles/finalizers
       - projects/finalizers
       - samlapps/finalizers
       - smsproviders/finalizers
