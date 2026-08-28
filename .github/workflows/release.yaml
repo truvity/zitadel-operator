@@ -35,7 +35,7 @@ jobs:
     permissions:
       contents: write
       packages: write
-    uses: truvity/ci-workflows/.github/workflows/release-public.yaml@9a25893002065e1502fc2957252a67b9892af71d # v2.12.3
+    uses: truvity/ci-workflows/.github/workflows/release-public.yaml@911931ed031e6885566a625413c42867f2cca598 # v2.15.0
     with:
       charts: '["zitadel-operator", "zitadel-operator-crds"]'
       # The image path the CHARTS have always referenced. Without this,
