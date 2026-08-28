@@ -18,5 +18,5 @@ jobs:
   # private key reach it at all. Same migration gitops completed in
   # INF-556 — this repository was simply left behind.
   update:
-    uses: truvity/ci-workflows/.github/workflows/devbox-update.yaml@9a25893002065e1502fc2957252a67b9892af71d # v2.12.3
+    uses: truvity/ci-workflows/.github/workflows/devbox-update.yaml@911931ed031e6885566a625413c42867f2cca598 # v2.15.0
     secrets: inherit
