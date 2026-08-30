@@ -1,16 +1,16 @@
 {
   "packages": [
-    "go@latest",
-    "golangci-lint@latest",
-    "gopls@latest",
-    "goreleaser@latest",
-    "govulncheck@latest",
-    "just-lsp@latest",
-    "just@latest",
-    "ko@latest",
-    "kubernetes-controller-tools@latest",
-    "kubernetes-helm@latest",
-    "setup-envtest@latest"
+    "go@1.27.0",
+    "golangci-lint@2.13.1",
+    "gopls@0.23.0",
+    "goreleaser@2.17.1",
+    "govulncheck@1.7.0",
+    "just-lsp@0.6.2",
+    "just@1.58.0",
+    "ko@0.19.1",
+    "kubernetes-controller-tools@0.21.0",
+    "kubernetes-helm@4.2.4",
+    "setup-envtest@0.22.3"
   ],
   "env": {
     "GOEXPERIMENT": "jsonv2"

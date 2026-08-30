@@ -152,7 +152,13 @@ func (r *EmailProviderReconciler) ensureSmtpProvider(ctx context.Context, cr *zi
 
 	resp, err := r.Zitadel.Admin().AddEmailProviderSMTP(ctx, &admin.AddEmailProviderSMTPRequest{
 		Description: smtp.Description, SenderAddress: smtp.SenderAddress, SenderName: smtp.SenderName,
-		ReplyToAddress: smtp.ReplyToAddress, Tls: smtp.Tls, Host: smtp.Host, User: smtp.User, Password: password,
+		ReplyToAddress: smtp.ReplyToAddress, Tls: smtp.Tls, Host: smtp.Host, User: smtp.User,
+		// The top-level Password field is deprecated in favor of the Auth
+		// oneof. Plain carries exactly the same secret that field did, so
+		// this is the like-for-like replacement -- User stays on the request.
+		Auth: &admin.AddEmailProviderSMTPRequest_Plain{
+			Plain: &admin.SMTPPlainAuth{Password: password},
+		},
 	})
 	if err != nil {
 		return "", fmt.Errorf("adding smtp email provider: %w", err)
