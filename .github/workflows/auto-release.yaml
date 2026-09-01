@@ -25,7 +25,7 @@ permissions:
 jobs:
   tag:
     if: vars.AUTO_RELEASE == 'true' && vars.CI_AUTOMATION_APP_ID != ''
-    uses: truvity/ci-workflows/.github/workflows/auto-release.yaml@b19968438f6f19b681517c4e2cfcb87fe7887673 # v2.16.3
+    uses: truvity/ci-workflows/.github/workflows/auto-release.yaml@49248a6cebd3720ac7f2eaf2e98ec97c0967b3b6 # v2.17.0
     with:
       app-id: ${{ vars.CI_AUTOMATION_APP_ID }}
     secrets:
