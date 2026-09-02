@@ -2,6 +2,8 @@ module github.com/truvity/zitadel-operator
 
 go 1.27.0
 
+toolchain go1.27.1
+
 require (
 	github.com/stretchr/testify v1.12.0
 	github.com/zalando/go-keyring v0.2.8
