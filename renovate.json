@@ -1,13 +1,8 @@
 {
   "extends": [
-    "config:recommended",
-    "security:gomodIndirectSecurityUpdates",
-    "helpers:pinGitHubActionDigests"
+    "github>truvity/ci-workflows"
   ],
   "osvVulnerabilityAlerts": true,
-  "labels": [
-    "dependencies"
-  ],
   "automerge": true,
   "automergeType": "pr",
   "automergeStrategy": "rebase",
@@ -24,33 +19,7 @@
   ],
   "packageRules": [
     {
-      "description": "Group all non-major updates together",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "digest"
-      ],
-      "groupName": "all non-major dependencies",
-      "groupSlug": "all-minor-patch"
-    },
-    {
-      "description": "Automerge all non-major updates",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "digest"
-      ],
-      "automerge": true
-    },
-    {
-      "description": "Do not automerge major updates",
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false
-    },
-    {
-      "description": "The go directive is OWNED by devbox-update (ci-workflows v2.10.0): it aligns go.mod to the toolchain triple in the same PR as devbox.lock \u2014 language minor capped by golangci-lint's build Go, patch = the newest release of that line, never downward. Renovate leaves `go` alone so the three can never disagree (2026-08-23; replaces the bump rule and the minor/strict gates that papered over split ownership).",
+      "description": "The go directive is OWNED by devbox-update (ci-workflows v2.10.0): it aligns go.mod to the toolchain triple in the same PR as devbox.lock — language minor capped by golangci-lint's build Go, patch = the newest release of that line, never downward. Renovate leaves `go` alone so the three can never disagree (2026-08-23; replaces the bump rule and the minor/strict gates that papered over split ownership).",
       "matchManagers": [
         "gomod"
       ],
