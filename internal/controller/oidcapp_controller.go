@@ -182,15 +182,7 @@ func (r *OIDCAppReconciler) findAppByName(ctx context.Context, projectID, appNam
 }
 
 func (r *OIDCAppReconciler) createOIDCApp(ctx context.Context, projectID string, cr *zitadelv1alpha2.OIDCApp) (appID, clientID, clientSecret string, err error) {
-	appType := applicationv2.OIDCApplicationType_OIDC_APP_TYPE_WEB
-	authMethod := applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC
-	if cr.Spec.AuthMethod == "none" {
-		authMethod = applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_NONE
-	}
-	if cr.Spec.Type == "public" {
-		appType = applicationv2.OIDCApplicationType_OIDC_APP_TYPE_USER_AGENT
-		authMethod = applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_NONE
-	}
+	appType, authMethod := zitadelAppType(cr.Spec.Type, cr.Spec.AuthMethod)
 
 	accessTokenType := applicationv2.OIDCTokenType_OIDC_TOKEN_TYPE_BEARER
 	if cr.Spec.AccessTokenType == "jwt" {
@@ -397,4 +389,24 @@ func (r *OIDCAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("oidcapp").
 		WithEventFilter(generationChangedPredicate()).
 		Complete(r)
+}
+
+// zitadelAppType maps the CRD's type/authMethod pair onto Zitadel's
+// application and auth-method types. public and native clients never
+// hold a secret, so their auth method is NONE regardless of the field;
+// confidential follows authMethod.
+func zitadelAppType(crType, crAuthMethod string) (applicationv2.OIDCApplicationType, applicationv2.OIDCAuthMethodType) {
+	switch crType {
+	case "public":
+		return applicationv2.OIDCApplicationType_OIDC_APP_TYPE_USER_AGENT, applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_NONE
+	case "native":
+		return applicationv2.OIDCApplicationType_OIDC_APP_TYPE_NATIVE, applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_NONE
+	}
+
+	authMethod := applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_BASIC
+	if crAuthMethod == "none" {
+		authMethod = applicationv2.OIDCAuthMethodType_OIDC_AUTH_METHOD_TYPE_NONE
+	}
+
+	return applicationv2.OIDCApplicationType_OIDC_APP_TYPE_WEB, authMethod
 }
