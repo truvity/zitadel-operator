@@ -30,8 +30,18 @@ type OIDCAppSpec struct {
 	// +optional
 	Name string `json:"name,omitempty"`
 
-	// Type is the OIDC application type.
-	// +kubebuilder:validation:Enum=confidential;public
+	// Type is the OIDC application type:
+	//   - confidential: a server-side client (Zitadel WEB) that holds a
+	//     client secret, written to secretRef.
+	//   - public: a browser SPA (Zitadel USER_AGENT), PKCE, no secret.
+	//   - native: a CLI or desktop client (Zitadel NATIVE), PKCE, no
+	//     secret. The one type for which Zitadel applies the RFC 8252
+	//     loopback rule: a redirect URI of http://localhost/... matches
+	//     ANY port, which is what a CLI listening on a random port for
+	//     its callback needs (kargo login --sso registers
+	//     http://localhost/auth/callback). Web and SPA types match
+	//     redirect URIs exactly and refuse http:// without dev mode.
+	// +kubebuilder:validation:Enum=confidential;public;native
 	Type string `json:"type"`
 
 	// AuthMethod is the authentication method.
